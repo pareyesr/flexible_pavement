@@ -1,0 +1,249 @@
+import math
+import scipy.stats as st
+import numpy as np
+from scipy.optimize import fsolve
+import pandas as pd
+import os
+# MPA to PSI = x * 145.03773773
+
+from scipy.stats import norm
+
+def pred_W18(tpd:int,vc:float,cd:float,i:float,n:int):
+    """
+    TPD:int = Trafico promedio diario\n
+    vc:float =Distribución por sentido (usalmente 0.5)\n
+    cd:float =Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)\n
+    i:float =indice de crecimiento \n
+    n:int =años de diseño\n
+    return -> 365*TPD*VC*CD*(1+i)^n/ln(1+i)\n
+    """
+    return 365*tpd*vc*cd*(1+i)**n/math.log(1+i)
+
+
+def predict_pavement_esal(r, so, sn, psi, mr):
+    """
+    Generate a prediction for Equivalent Single Axle Load (ESAL) based on given parameters.
+
+    Parameters:
+    r (float): Reliavility (usually 0.5-0.999)
+    so (float): standard error (usually 0.4-0.5 for asphalt, 0.35-0.4 for concrete)
+    sn (float): structural number
+    psi (float): allowable delta in serviceability index (usually 1.0-3.0)
+    mr (float): resilient modulus
+
+    Returns:
+    float: the predicted ESAL value
+    """
+    right_side = -norm.ppf(r)*so+9.36*np.log10(sn+1)-0.2+(np.log10(psi/(4.2-1.5))/(0.4+1094/(sn+1)**5.19))+2.32*np.log10(mr)-8.07
+    esals = 10**right_side
+    return esals
+
+def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
+    def f(sn):
+        val = sn[0]
+        return predict_pavement_esal(Reliavility, Standard_Deviation, val, Delta_PSI, Mr) - esal
+    return fsolve(f, np.array([3]))[0]
+"""
+Solucionar capa
+"""
+#import pandas as pd
+import random
+from copy import deepcopy
+
+
+class Layer():
+    def __init__(self, material_table_row):
+        self.name = material_table_row['mat_name']
+        self.sn = material_table_row['sn']
+        self.cost = material_table_row['cost']
+        self.density = material_table_row['density']
+        self.unit = material_table_row['unit']
+        surface = material_table_row['surface']
+        subgrade = material_table_row['subgrade']
+        alkaline = material_table_row['alkaline']
+        minimum_lift = material_table_row['min']
+        self.min_lift = minimum_lift
+        self.thickness = minimum_lift
+        self.max_lift = material_table_row['max']
+        self.cost_per_inch = self.calc_cost_per_inch()
+        self.surface_code = 1 if surface == "Yes" else 0
+        self.subgrade_code = 1 if subgrade == "Yes" else 0
+        self.alkaline_code = 1 if alkaline == "Yes" else 0
+        self.cost_per_sn = self.cost_per_inch / self.sn
+        return None
+
+    def calc_cost_per_inch(self):
+        if self.unit == "ton":
+            tonnage = self.density * 27 / 2000
+            cost_per_sy = self.cost * tonnage / 36 # in per yd
+            return cost_per_sy
+        elif self.unit == "cyd":
+            cost_per_sy = self.cost / 36
+            return cost_per_sy
+        elif self.unit == "sqyd":
+            return self.cost / self.min_lift
+        else:
+            return 0.0
+
+class Section(list): # subclass list just for sanity
+    def __init__(self, *layers):
+        super().__init__(*layers)
+
+def make_material_list(material_table)->list[Layer]:
+    return [Layer(row) for row in material_table]
+
+
+def make_trial_section(material_list) -> Section:
+    # select 1-4 materials at random and save to an array
+    num_materials: int = np.random.randint(1, 5)
+    section = Section()
+    for _ in range(num_materials):
+        section.append(deepcopy(random.choice(material_list)))
+    section.sort(key = lambda l : l.surface_code)
+    section.reverse()
+    section.sort(key = lambda l : l.subgrade_code)
+    return section
+
+
+def validate_section(section:Section)->bool:
+    # no duplicate courses of materials
+    names = [l.name for l in section]
+    if len(names) != len(set(names)):
+        return False
+    # must have a surface course
+    if section[0].surface_code == 0:
+        return False
+    # cannot have multiple subgrade treatments
+    if sum([l.subgrade_code for l in section]) > 1:
+        return False
+    # cannot have adjacent alkaline courses
+    alk = np.array([l.alkaline_code for l in section])
+    alk_roll = np.roll(alk, 1)
+    if np.logical_and(alk, alk_roll).any():
+        return False
+    # thickness must be a positive number
+    if any([l.thickness <= 0 for l in section]):
+        return False
+    # thickness must be achievable within lift size limits
+    for l in section:
+        if not l.thickness % l.min_lift < l.max_lift-l.min_lift or l.thickness % l.max_lift == 0:
+            return False
+    return True
+
+def remove_duplicate_sections(section_list):
+    result_list = []
+    used_combinations = set()
+    for section in section_list:
+        names = [l.name for l in section]
+        names.sort()
+        if tuple(names) in used_combinations:
+            continue
+        result_list.append(section)
+        used_combinations.add(tuple(names))
+    return result_list
+
+
+def section_sn(section):
+    return sum([l.sn * l.thickness for l in section])
+
+
+def section_cost(section, grade, embankment_cost, excavation_cost):
+    #Se calcula la diferencia de elevación de la subrazante. Si es negativa se multiplica por el costo de excavación, si es positiva por el costo de explanación
+    subgrade_elevation = grade - sum([layer.thickness for layer in section])
+    earthwork = ((embankment_cost if subgrade_elevation > 0 else excavation_cost)/36)*subgrade_elevation
+    return sum([l.cost_per_inch * l.thickness for l in section]) + earthwork
+
+
+def modify_thickness(section:Section, goal_sn):
+    epsilon = 0.01
+    current_sn = section_sn(section)
+    cost_index = [(i,l) for i,l in enumerate(section)]
+    cost_index.sort(key=lambda x: x[1].cost_per_sn)
+    increment_size = lambda l: 0.5 if l.min_lift < 2.0 else 1.0
+    for _ in range(10):  # this may not benefit from multiple passes
+        delta = goal_sn - current_sn
+        if abs(delta) < epsilon:
+            break
+        for i,_l in cost_index:
+            layer:Layer = section[i]
+            if layer.min_lift == layer.max_lift:
+                continue # pass layers with fixed thickness
+            inc = increment_size(layer)
+            inc_sn_delta = layer.sn * inc
+            adjustment = delta // inc_sn_delta if delta > 0 else np.ceil(delta / inc_sn_delta)
+            layer.thickness += inc * adjustment
+            if layer.thickness <= layer.min_lift:
+                layer.thickness = layer.min_lift
+            current_sn = section_sn(section)
+            delta = goal_sn - current_sn
+    return section
+
+
+def solve(material_table, goal_sn, grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
+    material_list = make_material_list(material_table)
+    sample_population = 5000
+    trial_sections = [make_trial_section(material_list) for _ in range(sample_population)]
+    unique_sections = remove_duplicate_sections(trial_sections)
+    valid_sections = [s for s in unique_sections if validate_section(s)]
+    modified_sections = [modify_thickness(s, goal_sn) for s in valid_sections]
+    revalidated_sections = [s for s in modified_sections if validate_section(s)]
+    revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
+    return revalidated_sections
+    
+def cargar_materiales(ruta:str)->pd.DataFrame:
+    """Carga la lista de materiales a partir de un archivo de texto, devuelve un DATAFRAME"""
+    if os.path.exists(ruta):
+        tab_ld = pd.read_csv(ruta)
+        '''
+        archivo = open(ruta,"r")
+        titulos = archivo.readline().strip('\n').split(',')
+        tab =[]
+        linea = archivo.readline()
+        while linea != "":
+            spl=linea.split(',')
+            lst=[]
+            for i in range(len(titulos)):
+                lst.append({titulos[i]:spl[i]})
+            linea = archivo.readline()
+            tab.append(lst)
+            '''
+    else:
+        #toca crear el archivo
+        tab_ld = open(ruta,"a")
+    """
+    step_3.excavation_cost = NumberField("Excavation Cost ($/cyd)", default=20.0)
+    step_3.embankment_cost = NumberField("Embankment Cost ($/cyd)", default=10.0)
+    step_4 = Step("Step 4: Solve", views=["optimize", "optimize_graph", "optimize_html"])
+    step_4.goal_sn = NumberField("Required Structural Number", default=5.0,
+                                 description="Use the value from Step 2 or provide an alternative.")
+                                 """
+    return tab_ld
+def optimize(self, params, **kwargs):
+    """
+    Resolver
+    """
+    materials = params.step_3.table
+    goal_sn = params.step_4.goal_sn
+    combined_data = []
+    profile = params.step_1.typical_profile_height
+    excavation = params.step_3.excavation_cost
+    embankment = params.step_3.embankment_cost
+    """
+    top_3 = solvesection.solve(materials, goal_sn, profile, embankment, excavation)[:3]
+    for section in top_3:
+        section_data = []
+        structural_number = round(solvesection.section_sn(section), 2)
+        for layer in section:
+            name = layer.name
+            thickness = layer.thickness
+            section_data.append(DataItem(name, thickness))
+        combined_data.append((structural_number, section_data))
+    raw_costs = [solvesection.section_cost(section, profile, embankment, excavation) for section in top_3]
+    formatted_costs = [f'${cost:.2f}/SY' for cost in raw_costs]
+    group_a = DataItem('Section A', combined_data[0][0], prefix="SN", subgroup=DataGroup(*combined_data[0][1]))
+    group_b = DataItem('Section B', combined_data[1][0], prefix="SN", subgroup=DataGroup(*combined_data[1][1]))
+    group_c = DataItem('Section C', combined_data[2][0], prefix="SN", subgroup=DataGroup(*combined_data[2][1]))
+    cost_a = DataItem('Section A Cost', formatted_costs[0])
+    cost_b = DataItem('Section B Cost', formatted_costs[1])
+    cost_c = DataItem('Section C Cost', formatted_costs[2])
+    return DataResult(DataGroup(group_a, group_b, group_c, cost_a, cost_b, cost_c))"""
