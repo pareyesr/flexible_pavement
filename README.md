@@ -29,3 +29,7 @@ To open the program, follow these steps:
     ```
     python main.py
     ```
+6. Deactivate the virtual environment:
+    ```
+    deactivate
+    ```
