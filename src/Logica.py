@@ -46,7 +46,6 @@ def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
 """
 Solucionar capa
 """
-#import pandas as pd
 import random
 from copy import deepcopy
 
@@ -89,8 +88,8 @@ class Section(list): # subclass list just for sanity
     def __init__(self, *layers):
         super().__init__(*layers)
 
-def make_material_list(material_table)->list[Layer]:
-    return [Layer(row) for row in material_table]
+def make_material_list(material_table:pd.DataFrame)->list[Layer]:
+    return [Layer(material_table.iloc[i]) for i in range(len(material_table))]
 
 
 def make_trial_section(material_list) -> Section:
@@ -210,13 +209,6 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
     else:
         #toca crear el archivo
         tab_ld = open(ruta,"a")
-    """
-    step_3.excavation_cost = NumberField("Excavation Cost ($/cyd)", default=20.0)
-    step_3.embankment_cost = NumberField("Embankment Cost ($/cyd)", default=10.0)
-    step_4 = Step("Step 4: Solve", views=["optimize", "optimize_graph", "optimize_html"])
-    step_4.goal_sn = NumberField("Required Structural Number", default=5.0,
-                                 description="Use the value from Step 2 or provide an alternative.")
-                                 """
     return tab_ld
 def optimize(self, params, **kwargs):
     """

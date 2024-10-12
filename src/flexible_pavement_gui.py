@@ -21,16 +21,25 @@ class App:
         # Create the tab for create or upload materials.
         mat_tab = ttk.Frame(notebook)
         notebook.add(mat_tab, text='Cargar Materiales')
-        self.create_mat_widgets(mat_tab)
+        df=self.create_mat_widgets(mat_tab)
 
         # Create the tab for solution.
         sol_tab = ttk.Frame(notebook)
         notebook.add(sol_tab, text='Capas solución')
-        self.create_mat_widgets(sol_tab)
-    def create_sol_widgets(self,tab):
-        solve(DF,self.sn_result_label.get(),self.grade.get(),self.exc.get(),)
-        titulos=['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline']
-        ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
+        self.create_sol_widgets(sol_tab,df)
+    def create_sol_widgets(self,tab,DF):
+        lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:3]
+        combined_data = []
+        for section in lst:
+            section_data = []
+            for layer in section:
+                name = layer.name
+                thickness = layer.thickness
+                section_data.append((name, thickness))
+            combined_data.append((sum([l.sn * l.thickness for l in section]), section_data))
+        for i in range(len(combined_data)):
+            for j in range(len(combined_data[0])):
+                ttk.Label(tab, text=combined_data[i][j]).grid(row=i+1, column=j+1, padx=0, pady=5)
     
     def create_mat_widgets(self, tab):
         # Etiquetas y cajas de entrada para ingresar materiales
@@ -44,7 +53,7 @@ class App:
             ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
         ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         if os.path.exists(ruta):
-            DF=self.cargar_mat(tab,ruta)
+            return self.cargar_mat(tab,ruta)
         else:
             #DF=crear_materiales(ruta)
             x=0
@@ -74,7 +83,7 @@ class App:
         self.grade = ttk.Entry(tab)
         self.grade.insert(0, "0.0")
         self.grade.grid(row=i+5, column=1, padx=10, pady=5, sticky="w")        
-        
+        return DF_mat
         
     def create_sn_widgets(self, tab):
         # Etiquetas y cajas de entrada para calcular SN
@@ -126,6 +135,7 @@ class App:
                                       Mr=modulo_resiliente)
         # Mostrar el resultado de SN en la interfaz
         self.sn_result_label.config(text="El valor calculado de SN es: {:.2f}".format(valor_sn))
+        return valor_sn
 
 # Crear la aplicación
 if __name__ == "__main__":
