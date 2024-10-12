@@ -27,6 +27,11 @@ class App:
         sol_tab = ttk.Frame(notebook)
         notebook.add(sol_tab, text='Capas solución')
         self.create_mat_widgets(sol_tab)
+    def create_sol_widgets(self,tab):
+        solve(DF,self.sn_result_label.get(),self.grade.get(),self.exc.get(),)
+        titulos=['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline']
+        ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
+    
     def create_mat_widgets(self, tab):
         # Etiquetas y cajas de entrada para ingresar materiales
         ttk.Label(tab, text="Cargar datos de materiales de un archivo csv").grid(row=0, column=0, padx=0, pady=5, sticky="w")
@@ -41,7 +46,8 @@ class App:
         if os.path.exists(ruta):
             DF=self.cargar_mat(tab,ruta)
         else:
-            DF=crear_materiales(ruta)
+            #DF=crear_materiales(ruta)
+            x=0
         
     def cargar_mat(self,tab,ruta):
         # Mostrar el resultado de cargar el material en la interfaz
@@ -64,6 +70,12 @@ class App:
         self.mat_result_label = ttk.Label(tab, text="")
         self.mat_result_label.grid(row=i+3, column=j//2, columnspan=2, pady=10)
         self.mat_result_label.config(text="El material de capa fue "+(resultado))
+        ttk.Label(tab, text="Grade (in)").grid(row=i+5, column=0, padx=0, pady=0, sticky="w")        
+        self.grade = ttk.Entry(tab)
+        self.grade.insert(0, "0.0")
+        self.grade.grid(row=i+5, column=1, padx=10, pady=5, sticky="w")        
+        
+        
     def create_sn_widgets(self, tab):
         # Etiquetas y cajas de entrada para calcular SN
         ttk.Label(tab, text="Nivel de Confianza:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
@@ -120,10 +132,12 @@ if __name__ == "__main__":
     #Es necesario si quieres correr la app desde este modulo
     from Logica import solve_sn
     from Logica import cargar_materiales
+    from Logica import solve
     root = tk.Tk()
     app = App(root)
     root.mainloop()
 else:
     from .Logica import solve_sn
     from .Logica import cargar_materiales
+    from .Logica import solve
     #Toca importarlo relativo cuando se importa el modulo
