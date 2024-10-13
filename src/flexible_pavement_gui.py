@@ -28,6 +28,7 @@ class App:
         notebook.add(sol_tab, text='Capas solución')
         self.create_sol_widgets(sol_tab,df)
     def create_sol_widgets(self,tab,DF):
+        print(self.calcular_sn())
         lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:3]
         combined_data = []
         for section in lst:
