@@ -28,7 +28,14 @@ class App:
         notebook.add(sol_tab, text='Capas solución')
         self.create_sol_widgets(sol_tab,df)
     def create_sol_widgets(self,tab,DF):
-        print(self.calcular_sn())
+        combined_data = self.calcular_sol(DF)
+        for i in range(len(combined_data)):
+            for j in range(len(combined_data[0])):
+                ttk.Label(tab, text=combined_data[i][j]).grid(row=i+1, column=j+1, padx=0, pady=5)
+        # Botón para calcular la solución de capas
+        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol(DF)).grid(row=i+2, column=1, columnspan=2, pady=10)
+    def calcular_sol(self,DF):
+        print(2)
         lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:3]
         combined_data = []
         for section in lst:
@@ -38,10 +45,7 @@ class App:
                 thickness = layer.thickness
                 section_data.append((name, thickness))
             combined_data.append((sum([l.sn * l.thickness for l in section]), section_data))
-        for i in range(len(combined_data)):
-            for j in range(len(combined_data[0])):
-                ttk.Label(tab, text=combined_data[i][j]).grid(row=i+1, column=j+1, padx=0, pady=5)
-    
+        return combined_data
     def create_mat_widgets(self, tab):
         # Etiquetas y cajas de entrada para ingresar materiales
         ttk.Label(tab, text="Cargar datos de materiales de un archivo csv").grid(row=0, column=0, padx=0, pady=5, sticky="w")
