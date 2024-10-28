@@ -26,18 +26,20 @@ class App:
         # Create the tab for solution.
         sol_tab = ttk.Frame(notebook)
         notebook.add(sol_tab, text='Capas solución')
-        self.create_sol_widgets(sol_tab,df)
-    def create_sol_widgets(self,tab,DF):
+        self.create_sol_widgets(sol_tab)
+    def create_sol_widgets(self,tab):
         self.sol_result_label = ttk.Label(tab, text="")
         self.sol_result_label.grid(row=6, column=0, columnspan=2, pady=10)
-        combined_data = self.calcular_sol(DF)
+        combined_data = self.calcular_sol()
         for i in range(len(combined_data)):
             for j in range(len(combined_data[0])):
                 ttk.Label(tab, text=combined_data[i][j]).grid(row=i+2, column=j+2, padx=0, pady=5)
         # Botón para calcular la solución de capas
-        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol(DF)).grid(row=1, column=0, columnspan=2, pady=10)
-    def calcular_sol(self,DF):
+        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(row=1, column=0, columnspan=2, pady=10)
+    def calcular_sol(self):
         print(2)
+        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        DF= cargar_materiales(ruta)
         lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:3]
         combined_data = []
         for section in lst:
@@ -121,7 +123,7 @@ class App:
         self.modulo_resiliente_entry.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 
         # Botón para calcular el valor de SN
-        #ttk.Button(tab, text="Calcular SN", command=self.calcular_sn).grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Button(tab, text="Calcular SN", command=self.calcular_sn).grid(row=5, column=0, columnspan=2, pady=10)
 
         # Etiqueta para mostrar el resultado de SN
         self.sn_result_label = ttk.Label(tab, text="")
