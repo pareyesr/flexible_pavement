@@ -193,49 +193,7 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
     """Carga la lista de materiales a partir de un archivo de texto, devuelve un DATAFRAME"""
     if os.path.exists(ruta):
         tab_ld = pd.read_csv(ruta)
-        '''
-        archivo = open(ruta,"r")
-        titulos = archivo.readline().strip('\n').split(',')
-        tab =[]
-        linea = archivo.readline()
-        while linea != "":
-            spl=linea.split(',')
-            lst=[]
-            for i in range(len(titulos)):
-                lst.append({titulos[i]:spl[i]})
-            linea = archivo.readline()
-            tab.append(lst)
-            '''
     else:
         #toca crear el archivo
         tab_ld = open(ruta,"a")
     return tab_ld
-def optimize(self, params, **kwargs):
-    """
-    Resolver
-    """
-    materials = params.step_3.table
-    goal_sn = params.step_4.goal_sn
-    combined_data = []
-    profile = params.step_1.typical_profile_height
-    excavation = params.step_3.excavation_cost
-    embankment = params.step_3.embankment_cost
-    """
-    top_3 = solvesection.solve(materials, goal_sn, profile, embankment, excavation)[:3]
-    for section in top_3:
-        section_data = []
-        structural_number = round(solvesection.section_sn(section), 2)
-        for layer in section:
-            name = layer.name
-            thickness = layer.thickness
-            section_data.append(DataItem(name, thickness))
-        combined_data.append((structural_number, section_data))
-    raw_costs = [solvesection.section_cost(section, profile, embankment, excavation) for section in top_3]
-    formatted_costs = [f'${cost:.2f}/SY' for cost in raw_costs]
-    group_a = DataItem('Section A', combined_data[0][0], prefix="SN", subgroup=DataGroup(*combined_data[0][1]))
-    group_b = DataItem('Section B', combined_data[1][0], prefix="SN", subgroup=DataGroup(*combined_data[1][1]))
-    group_c = DataItem('Section C', combined_data[2][0], prefix="SN", subgroup=DataGroup(*combined_data[2][1]))
-    cost_a = DataItem('Section A Cost', formatted_costs[0])
-    cost_b = DataItem('Section B Cost', formatted_costs[1])
-    cost_c = DataItem('Section C Cost', formatted_costs[2])
-    return DataResult(DataGroup(group_a, group_b, group_c, cost_a, cost_b, cost_c))"""
