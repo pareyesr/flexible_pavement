@@ -31,25 +31,33 @@ class App:
         self.sol_result_label = ttk.Label(tab, text="")
         self.sol_result_label.grid(row=6, column=0, columnspan=2, pady=10)
         combined_data = self.calcular_sol()
+        """
         for i in range(len(combined_data)):
             for j in range(len(combined_data[0])):
                 ttk.Label(tab, text=combined_data[i][j]).grid(row=i+2, column=j+2, padx=0, pady=5)
+        """
         # Botón para calcular la solución de capas
         ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(row=1, column=0, columnspan=2, pady=10)
     def calcular_sol(self):
         print(2)
         ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         DF= cargar_materiales(ruta)
-        lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:3]
+        lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:5]
         combined_data = []
+        sn_data=[]
         for section in lst:
             section_data = []
             for layer in section:
                 name = layer.name
                 thickness = layer.thickness
                 section_data.append((name, thickness))
-            combined_data.append((sum([l.sn * l.thickness for l in section]), section_data))
-        self.sol_result_label.config(text=str(combined_data))
+            combined_data.append(section_data)
+            sn_data.append(round(sum([l.sn * l.thickness for l in section]),2))
+        #self.sol_result_label.config(text="\n".join(combined_data))
+        str_res="SN\tCAPAS\n"
+        for i in range(len(combined_data)):
+            str_res+=str(sn_data[i])+"\t"+str(combined_data[i])+"\n"
+        self.sol_result_label.config(text=str_res)
         return combined_data
     def create_mat_widgets(self, tab):
         # Etiquetas y cajas de entrada para ingresar materiales
@@ -145,6 +153,7 @@ class App:
                                       Mr=modulo_resiliente)
         # Mostrar el resultado de SN en la interfaz
         self.sn_result_label.config(text="El valor calculado de SN es: {:.2f}".format(valor_sn))
+        print("El valor calculado de SN es: {:.2f}".format(valor_sn))
         return valor_sn
 
 # Crear la aplicación
