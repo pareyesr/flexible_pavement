@@ -39,12 +39,12 @@ class App:
         # Botón para calcular la solución de capas
         ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(row=1, column=0, columnspan=2, pady=10)
     def calcular_sol(self):
-        print(2)
         ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         DF= cargar_materiales(ruta)
         lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:5]
         combined_data = []
         sn_data=[]
+        cost_data=[]
         for section in lst:
             section_data = []
             for layer in section:
@@ -52,11 +52,12 @@ class App:
                 thickness = layer.thickness
                 section_data.append((name, thickness))
             combined_data.append(section_data)
+            cost_data.append(section.totalCost)
             sn_data.append(round(sum([l.sn * l.thickness for l in section]),2))
         #self.sol_result_label.config(text="\n".join(combined_data))
-        str_res="SN\tCAPAS\n"
+        str_res="SN\tCosto\tCAPAS\n"
         for i in range(len(combined_data)):
-            str_res+=str(sn_data[i])+"\t"+str(combined_data[i])+"\n"
+            str_res+=str(sn_data[i])+"\t"+str(round(cost_data[i],4))+"\t"+str(combined_data[i])+"\n"
         self.sol_result_label.config(text=str_res)
         return combined_data
     def create_mat_widgets(self, tab):

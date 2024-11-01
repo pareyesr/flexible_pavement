@@ -29,7 +29,7 @@ def predict_pavement_esal(r, so, sn, psi, mr):
     so (float): standard error (usually 0.4-0.5 for asphalt, 0.35-0.4 for concrete)
     sn (float): structural number
     psi (float): allowable delta in serviceability index (usually 1.0-3.0)
-    mr (float): resilient modulus
+    mr (float): resilient modulus [PSI]
 
     Returns:
     float: the predicted ESAL value
@@ -42,7 +42,7 @@ def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
     def f(sn):
         val = sn[0]
         return predict_pavement_esal(Reliavility, Standard_Deviation, val, Delta_PSI, Mr) - esal
-    return fsolve(f, np.array([3]))[0]
+    return fsolve(f, np.array([15]))[0]
 """
 Solucionar capa
 """
@@ -86,6 +86,7 @@ class Layer():
 
 class Section(list): # subclass list just for sanity
     def __init__(self, *layers):
+        self.totalCost = 0
         super().__init__(*layers)
 
 def make_material_list(material_table:pd.DataFrame)->list[Layer]:
@@ -150,7 +151,8 @@ def section_cost(section, grade, embankment_cost, excavation_cost):
     #Se calcula la diferencia de elevación de la subrazante. Si es negativa se multiplica por el costo de excavación, si es positiva por el costo de explanación
     subgrade_elevation = grade - sum([layer.thickness for layer in section])
     earthwork = ((embankment_cost if subgrade_elevation > 0 else excavation_cost)/36)*subgrade_elevation
-    return sum([l.cost_per_inch * l.thickness for l in section]) + earthwork
+    section.totalCost = sum([l.cost_per_inch * l.thickness for l in section]) + earthwork
+    return section.totalCost
 
 
 def modify_thickness(section:Section, goal_sn):
