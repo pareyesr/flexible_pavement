@@ -155,11 +155,22 @@ def section_cost(section, grade, embankment_cost, excavation_cost):
     return section.totalCost
 
 
-def modify_thickness(section:Section, goal_sn):
+def modify_thickness(section:Section, goal_sn,n=0):
+    """
+    section: Sección a modificar
+    goal_sn: float, objetivo SN a llegar
+    n:int, Capas que se pueden modificar(primera a n), 0 todas
+    """
     epsilon = 0.01
     current_sn = section_sn(section)
-    cost_index = [(i,l) for i,l in enumerate(section)]
-    cost_index.sort(key=lambda x: x[1].cost_per_sn)
+    if n==0:
+        cost_index = [(i,l) for i,l in enumerate(section)]
+        cost_index.sort(key=lambda x: x[1].cost_per_sn)
+    else:
+        print(n)
+        lay=section[0:n+1]
+        cost_index = [(i,l) for i,l in enumerate(lay)]
+        cost_index.sort(key=lambda x: x[1].cost_per_sn)
     increment_size = lambda l: 0.5 if l.min_lift < 2.0 else 1.0
     for _ in range(10):  # this may not benefit from multiple passes
         delta = goal_sn - current_sn
@@ -199,3 +210,31 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
         #toca crear el archivo
         tab_ld = open(ruta,"a")
     return tab_ld
+
+#TODO SOLVER sobre capas hechas
+
+def resolve(material_table,sect:Section,SN:float,n:int,grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
+    """
+    section: Sección a recalcular
+    SN: SN a superar
+    n: Numero de capas dañadas sobre la sección aka capas a remover
+    """
+    material_list = make_material_list(material_table)
+    prev_sect = sect[n:]
+    trial_sections=[]
+    for _ in range(5000):
+        # select 1-4 materials at random and save to an array    
+        num_materials: int = np.random.randint(1, 5)
+        new_caps = Section()
+        for _ in range(num_materials):
+            new_caps.append(deepcopy(random.choice(material_list)))
+        for i in range(len(prev_sect)):
+            new_caps.append(prev_sect[i])
+        trial_sections.append(new_caps)
+    unique_sections = remove_duplicate_sections(trial_sections)
+    valid_sections = [s for s in unique_sections if validate_section(s)]
+    #Aumentar espesor
+    modified_sections = [modify_thickness(s, SN,len(s)-len(prev_sect)) for s in valid_sections]    
+    revalidated_sections = [s for s in modified_sections if validate_section(s)]
+    revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
+    return revalidated_sections
