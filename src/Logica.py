@@ -4,6 +4,7 @@ import numpy as np
 from scipy.optimize import fsolve
 import pandas as pd
 import os
+from itertools import combinations 
 # MPA to PSI = x * 145.03773773
 
 from scipy.stats import norm
@@ -104,6 +105,27 @@ def make_trial_section(material_list) -> Section:
     section.sort(key = lambda l : l.subgrade_code)
     return section
 
+def make_possible_sections(material_list,num_capas) -> list:
+    
+    lst_compl =[]
+
+    surface_lst = []
+    subgrad_lst = []
+    alkaline_lst = []
+    rest_lst=[]
+    mat_size = len(material_list)
+    for i in range(mat_size):
+        lay = material_list[i]
+        if lay.surface_code == 1:
+            surface_lst.append(i)
+        if lay.subgrade_code == 1:
+            subgrad_lst.append(i)
+        if lay.alkaline_code == 1:
+            alkaline_lst.append(i)
+        elif lay.subgrade_code == 0 and lay.surface_code ==0:
+            rest_lst.append(i)
+    indices=combinations(range(len(material_list)),num_capas)
+    return lst_compl
 
 def validate_section(section:Section)->bool:
     # no duplicate courses of materials
@@ -173,7 +195,7 @@ def modify_thickness(section:Section, goal_sn,n=0):
         cost_index.sort(key=lambda x: x[1].cost_per_sn)
     increment_size = lambda l: 0.5 if l.min_lift < 2.0 else 1.0
     for _ in range(10):  # this may not benefit from multiple passes
-        delta = goal_sn - current_sn
+        delta = goal_sn - current_sn+0.1
         if abs(delta) < epsilon:
             break
         for i,_l in cost_index:
@@ -187,7 +209,7 @@ def modify_thickness(section:Section, goal_sn,n=0):
             if layer.thickness <= layer.min_lift:
                 layer.thickness = layer.min_lift
             current_sn = section_sn(section)
-            delta = goal_sn - current_sn
+            delta = goal_sn - current_sn+0.1
     return section
 
 
@@ -220,9 +242,11 @@ def resolve(material_table,sect:Section,SN:float,n:int,grade=0.0, embankment_cos
     n: Numero de capas dañadas sobre la sección aka capas a remover
     """
     material_list = make_material_list(material_table)
+    for i in range(n):
+        print(sect[i].name)
     prev_sect = sect[n:]
     trial_sections=[]
-    for _ in range(5000):
+    for _ in range(10000):
         # select 1-4 materials at random and save to an array    
         num_materials: int = np.random.randint(1, 5)
         new_caps = Section()

@@ -41,12 +41,16 @@ class App:
         self.n_layer = ttk.Entry(tab)
         self.n_layer.insert(0, "1")
         self.n_layer.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Sección a modificar:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.section_entry = ttk.Entry(tab)
+        self.section_entry.insert(0, "1")
+        self.section_entry.grid(row=2, column=1, padx=10, pady=5, sticky="w")
         #Etiqueta resultados
         self.resol_result_label = ttk.Label(tab, text="")
         self.resol_result_label.grid(row=6, column=0, columnspan=2, pady=10)
         combined_data = self.recalcular_sol()
         # Botón para recalcular la solución de capas
-        ttk.Button(tab, text="Re-Calcular capas", command=self.recalcular_sol).grid(row=2, column=0, columnspan=2, pady=10)
+        ttk.Button(tab, text="Re-Calcular capas", command=self.recalcular_sol).grid(row=3, column=0, columnspan=2, pady=10)
     def create_sol_widgets(self,tab):
         self.sol_result_label = ttk.Label(tab, text="")
         self.sol_result_label.grid(row=6, column=0, columnspan=2, pady=10)
@@ -84,7 +88,8 @@ class App:
     def recalcular_sol(self):
         ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         DF= cargar_materiales(ruta)
-        sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[3]
+        n_sect=int(self.section_entry.get())-1
+        sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
         print(sect.totalCost,sect[0].name,sect[-1].name,sect[-2].name)
         lst=resolve(DF,sect,float(self.new_sn.get()),int(self.n_layer.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:1]
         combined_data = []
@@ -99,7 +104,7 @@ class App:
             combined_data.append(section_data)
             cost_data.append(section.totalCost)
             sn_data.append(round(sum([l.sn * l.thickness for l in section]),2))
-        str_res="SN\tCosto\tCAPAS\n"
+        str_res="SN\tCosto ($/sqy)\tCAPAS\n"
         for i in range(len(combined_data)):
             str_res+=str(sn_data[i])+"\t"+str(round(cost_data[i],4))+"\t"+str(combined_data[i])+"\n"
         self.resol_result_label.config(text=str_res)
