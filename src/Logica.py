@@ -91,6 +91,7 @@ class Section(list): # subclass list just for sanity
         super().__init__(*layers)
 
 def make_material_list(material_table:pd.DataFrame)->list[Layer]:
+    #TODO make sure Material list is sorted by surface material on top
     return [Layer(material_table.iloc[i]) for i in range(len(material_table))]
 
 
@@ -106,15 +107,17 @@ def make_trial_section(material_list) -> Section:
     return section
 
 def make_possible_sections(material_list,num_capas) -> list:
-    
-    lst_compl =[]
-
+    """
+    material_list should be sorted by surface_code on top
+    Return a list with all the posible combinations without repetition n! / (k! * (n - k)!) when k <= n.\n
+    k being num_capas and n being len(material_list). Aditionally removes restrictions such as having one surface, 1 or less alkaline layer, and 1 or less subgrade treatment.
+    """
     surface_lst = []
     subgrad_lst = []
     alkaline_lst = []
-    rest_lst=[]
     mat_size = len(material_list)
     for i in range(mat_size):
+        #Crear listas de los indices de los materiales restrictivos (rodadura,subrasante,alkalino)
         lay = material_list[i]
         if lay.surface_code == 1:
             surface_lst.append(i)
@@ -122,9 +125,46 @@ def make_possible_sections(material_list,num_capas) -> list:
             subgrad_lst.append(i)
         if lay.alkaline_code == 1:
             alkaline_lst.append(i)
-        elif lay.subgrade_code == 0 and lay.surface_code ==0:
-            rest_lst.append(i)
-    indices=combinations(range(len(material_list)),num_capas)
+    comb_indices=combinations(range(mat_size),num_capas)
+    indices=[]
+    for k in comb_indices:
+        lay = []
+        for m in k:
+            lay.append(int(m))
+        indices.append(lay)
+    g=0
+    tam = len(indices)
+    while g<tam:
+        if not(indices[g][0] in surface_lst):
+            #Si el primer indice no es una rodadura descarta la combinación. Supone la lista de materiales ordenada (El metodo que la crea la ordena)
+            indices.pop(g)
+            g-=1
+            tam-=1
+        else:
+            surface=0
+            alk = 0
+            trat_sub = 0
+            for h in indices[g]:
+                if h in surface_lst:
+                    #It should be only 1
+                    surface+=1
+                if h in alkaline_lst:
+                    #Tecnicamente se pueden tener dos capas alcalinas si estas no se tocan. Pero no tiene sentido generalmente
+                    alk +=1
+                if h in subgrad_lst:
+                    trat_sub+=1  
+                if alk ==2 or trat_sub==2 or surface==2 or surface==0:
+                    #Si tiene más de una capa de superficie, tratamiento subrasante o alkalina
+                    indices.pop(g)
+                    g-=1
+                    tam-=1
+        g+=1
+    lst_compl =[]
+    for ind_sect in indices:
+        section = Section()
+        for j in ind_sect:
+            section.append(deepcopy(material_list[j]))
+        lst_compl.append(section)
     return lst_compl
 
 def validate_section(section:Section)->bool:
@@ -215,10 +255,15 @@ def modify_thickness(section:Section, goal_sn,n=0):
 
 def solve(material_table, goal_sn, grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
     material_list = make_material_list(material_table)
+    """
     sample_population = 5000
     trial_sections = [make_trial_section(material_list) for _ in range(sample_population)]
     unique_sections = remove_duplicate_sections(trial_sections)
     valid_sections = [s for s in unique_sections if validate_section(s)]
+    """
+    valid_sections = []
+    for i in range(1,6):
+        valid_sections += make_possible_sections(material_list,i)
     modified_sections = [modify_thickness(s, goal_sn) for s in valid_sections]
     revalidated_sections = [s for s in modified_sections if validate_section(s)]
     revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))

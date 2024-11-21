@@ -90,7 +90,6 @@ class App:
         DF= cargar_materiales(ruta)
         n_sect=int(self.section_entry.get())-1
         sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
-        print(sect.totalCost,sect[0].name,sect[-1].name,sect[-2].name)
         lst=resolve(DF,sect,float(self.new_sn.get()),int(self.n_layer.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:1]
         combined_data = []
         sn_data=[]
