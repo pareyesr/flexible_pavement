@@ -1,3 +1,4 @@
+from Logica import resolve
 from Logica import pred_W18
 from Logica import solve_sn
 import matplotlib.pyplot as plt
@@ -48,7 +49,7 @@ def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI
     #note, it returns len(arr)+1 if dont fail on all the array
     return mid+1
 
-def W18_prediction(TPD=402.39,step=3,vc=0.5,cd=1.0,i=0.05,n=30)->list:
+def W18_prediction(TPD=402.39,vc=0.5,cd=1.0,i=0.05,n=30,step=3)->list:
     """Generate the W18 predictions used for the traditional approach in flexible pavement \n
     Additionally creates the additional predictions of W18 to generate an aproach of flexibility in the design with intermediate steps. \n
     TPD:int = Trafico promedio diario\n
@@ -81,26 +82,36 @@ def npv(r,arr):
     for i in range(1,len(arr)+1):
         sum_pv += arr[i-1] / ((1 + r) ** i)
     return sum_pv
-def evaluate_flexibility(size,n,rate,sn_design)->np.array:
+def evaluate_flexibility(size,n,rate,sn_design,org_sect,cost_rb,step=3)->np.array:
     """
     Funtion to evaluate the design flexibility\n
     size:int = tamaño de muestra aleatoria\n
     n:int = meses de diseño\n
+    cost_rb:float = Cost of building redesign (Fixed) \n
     return tuple of array like of size*n length of traffic and acumulative traffic at time index (monthly)
     """
     res = np.zeros(size)
     random_transit,acumulated = make_simulated_transit()
-
+    n_step= n//step
     for i in range(size):
         random_cost = np.zeros(n)
-        n_break = calculate_break()
-        #redesign when break, and add to the cost on period n_break. 
+        i_n=i*n
+        n_break:int = calculate_break(acumulated[i_n:n+i_n],sn_design,Reliavility=,Standard_Deviation=,Delta_PSI=,Mr=)
+        previous=0
         while n_break<=n:
+            #redesign when break, and add to the cost on period n_break. 
             #TODO
             #Then take the random transit and redesign
-            fun=W18_linear_regression()
-            #random_cost[n_break]= #cost of redesign
-            n_break = calculate_break()
+            fun=W18_linear_regression(random_transit[i_n+previous:i_n+n_break+previous])
+            new_trans = fun(n_step)
+            sn_rd = solve_sn(Reliavility=,Standard_Deviation=,Delta_PSI=,Mr=,esal=new_trans) #Redesign with sn_rd
+            
+            rd_arr= resolve(material_table=,sect=org_sect,SN=,n=,grade=,embankment_cost=,excavation_cost=)
+            random_cost[n_break]= rd_arr[0].totalCost + cost_rb#cost of building the redesign 
+            previous=n_break  #TODO CHECK+1 (n_break comes with +1 )
+            
+            #TODO PENSAR BIEN EN INDICES 
+            n_break = calculate_break(acumulated[i_n:n+i_n]-acumulated[i_n+previous-1],sn_rd,Reliavility=,Standard_Deviation=,Delta_PSI=,Mr=)
         #calculate NPV from redesign until n
         res[i]= np.npv(rate,random_cost)
     return res 
