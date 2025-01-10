@@ -1,5 +1,4 @@
 import math
-import scipy.stats as st
 import numpy as np
 from scipy.optimize import fsolve
 import pandas as pd

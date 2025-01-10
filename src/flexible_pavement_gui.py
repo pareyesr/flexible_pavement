@@ -1,6 +1,11 @@
 import tkinter as tk
 from tkinter import ttk
 import os
+# Implement the default Matplotlib key bindings.
+from matplotlib.backend_bases import key_press_handler
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,NavigationToolbar2Tk)
+from matplotlib.figure import Figure
+import numpy as np
 class App:
     def __init__(self, master):
         self.master = master
@@ -31,6 +36,141 @@ class App:
         resol_tab = ttk.Frame(notebook)
         notebook.add(resol_tab, text='Modificar capas')
         self.create_resol_widgets(resol_tab)
+        # Create the tab for the parameters for the random transit evaluation
+        rev_param_tab = ttk.Frame(notebook)
+        notebook.add(rev_param_tab, text='Parametros evaluación por transito aleatorio')
+        self.create_param_rand_widgets(rev_param_tab,notebook)
+    def create_param_rand_widgets(self,tab,notebook):
+        # Etiquetas y cajas de entrada 
+        ttk.Label(tab, text="TPD:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Trafico promedio diario (num de carros)").grid(row=0, column=3, padx=10, pady=5, sticky="w")
+        self.tpd = ttk.Entry(tab)
+        self.tpd.insert(0, "402.39")
+        self.tpd.grid(row=0, column=1, padx=10, pady=5, sticky="w") 
+        ttk.Label(tab, text="archivo npy:").grid(row=0, column=3, padx=10, pady=5, sticky="w")
+        self.arr_ruta = ttk.Entry(tab)
+        self.arr_ruta.insert(0, "datos_res")
+        self.arr_ruta.grid(row=0, column=4, padx=10, pady=5, sticky="w") 
+        ttk.Label(tab, text="vc:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Distribución por sentido (usalmente 0.5)").grid(row=1, column=3, padx=10, pady=5, sticky="w")
+        self.vc = ttk.Entry(tab)
+        self.vc.insert(0, "0.5")
+        self.vc.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="cd:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)").grid(row=2, column=3, padx=10, pady=5, sticky="w")
+        self.cd = ttk.Entry(tab)
+        self.cd.insert(0, "1.0")
+        self.cd.grid(row=2, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="i:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="indice de crecimiento").grid(row=3, column=3, padx=10, pady=5, sticky="w")
+        self.i = ttk.Entry(tab)
+        self.i.insert(0, "0.05")
+        self.i.grid(row=3, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="n:").grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Meses de diseño").grid(row=4, column=3, padx=10, pady=5, sticky="w")
+        self.n_mes = ttk.Entry(tab)
+        self.n_mes.insert(0, "360")
+        self.n_mes.grid(row=4, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="tamaño:").grid(row=5, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Tamaño de la muestra aleatoria").grid(row=5, column=3, padx=10, pady=5, sticky="w")
+        self.size = ttk.Entry(tab)
+        self.size.insert(0, "5000")
+        self.size.grid(row=5, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Rate:").grid(row=6, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Tasa de evaluación para valor presente neto (MENSUAL)").grid(row=6, column=3, padx=10, pady=5, sticky="w")
+        self.rate = ttk.Entry(tab)
+        self.rate.insert(0, "0.05")
+        self.rate.grid(row=6, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Costo de reconstrucción (fijo):").grid(row=7, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Valor en $ para los costos fijos de empezar construcción").grid(row=7, column=3, padx=10, pady=5, sticky="w")
+        self.cost_rb = ttk.Entry(tab)
+        self.cost_rb.insert(0, "1000")
+        self.cost_rb.grid(row=7, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Capas de pavimento a reemplazar por reconstrucción").grid(row=8, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="1 capa es rodadura").grid(row=8, column=3, padx=10, pady=5, sticky="w")
+        self.layers = ttk.Entry(tab)
+        self.layers.insert(0, "2")
+        self.layers.grid(row=8, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Etapas de rediseño en la vida util del pavimento").grid(row=9, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="una etapa cada 10 años para un diseño de 30 años sería 3").grid(row=9, column=3, padx=10, pady=5, sticky="w")
+        self.step = ttk.Entry(tab)
+        self.step.insert(0, "3")
+        self.step.grid(row=9, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Semilla aleatoria:").grid(row=10, column=0, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="0 para remover semilla (Sin repitibildad)").grid(row=20, column=3, padx=10, pady=5, sticky="w")
+        self.seed = ttk.Entry(tab)
+        self.seed.insert(0, "63442967")
+        self.seed.grid(row=20, column=1, padx=10, pady=5, sticky="w")
+        
+        # Create the tab for graphics of random transit test.
+        tk.Button(master=tab, text="Load", command=self.create_rand_graph_widgets(notebook)).grid(row=0, column=5, columnspan=2, pady=10)
+    def create_rand_graph_widgets(self,notebook):
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text='Graficas de resultados de trafico aleatorio')
+        #Variables 
+        confianza = float(self.confianza_entry.get())
+        desviacion = float(self.desviacion_entry.get())
+        delta_psi = float(self.delta_psi_entry.get())
+        modulo_resiliente = float(self.modulo_resiliente_entry.get())
+        #
+        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        DF= cargar_materiales(ruta)
+        
+        n_sect=int(self.section_entry.get())-1
+        sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
+        ruta_arr ='.\\src\\'+str(self.arr_ruta.get())+".npy"
+        def load_arr(ruta_arr):
+            if os.path.exists(ruta_arr):
+                arr = np.load(ruta_arr)
+            else:
+                arr:np.array = evaluate_flexibility(float(self.tpd.get()),
+                                                    float(self.vc.get()),
+                                                      float(self.cd.get()),
+                                                      int(self.size.get()),
+                                                      int(self.n_mes.get()),
+                                                      float(self.rate.get()),
+                                                      self.calcular_sn(),
+                                                      confianza,desviacion,delta_psi,modulo_resiliente,DF,
+                                                      sect,float(self.grade.get()),
+                                                      float(self.emb.get()),
+                                                      float(self.exc.get()),
+                                                      float(self.cost_rb.get()),
+                                                      int(self.layers.get()),
+                                                      int(self.step.get()),
+                                                      int(self.seed.get()))
+                np.save(ruta_arr,arr)
+            return arr
+        arr = load_arr(ruta_arr)
+        fig = Figure(figsize=(5, 4), dpi=100)
+        ax = fig.add_subplot()
+        ax.hist(arr)
+
+        canvas = FigureCanvasTkAgg(fig, master=tab)  # A tk.DrawingArea.
+        canvas.draw()
+        canvas.mpl_connect("key_press_event", lambda event: print(f"you pressed {event.key}"))
+        canvas.mpl_connect("key_press_event", key_press_handler)
+
+        button_quit = tk.Button(master=tab, text="Quit", command=tab.destroy)
+        # pack_toolbar=False will make it easier to use a layout manager later on.
+        toolbar = NavigationToolbar2Tk(canvas, tab, pack_toolbar=False)
+        toolbar.update()
+
+        def update_frequency(new_val):
+            # retrieve frequency
+            ax.clear()
+            ax.hist(arr,bins=int(new_val))
+            # required to update canvas and attached toolbar!
+            canvas.draw()
+        slider_update = tk.Scale(tab, from_=5, to=25, orient=tk.HORIZONTAL,command=update_frequency, label="Rangos")
+
+        # Packing order is important. Widgets are processed sequentially and if there
+        # is no space left, because the window is too small, they are not displayed.
+        # The canvas is rather flexible in its size, so we pack it last which makes
+        # sure the UI controls are displayed as long as possible.
+        button_quit.pack(side=tk.BOTTOM)
+        slider_update.pack(side=tk.BOTTOM)
+        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
     def create_resol_widgets(self,tab):
         # Etiquetas y cajas de entrada para recalcular capas
         ttk.Label(tab, text="Nuevo SN:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
@@ -212,6 +352,7 @@ if __name__ == "__main__":
     from Logica import cargar_materiales
     from Logica import solve
     from Logica import resolve
+    from Pasos import evaluate_flexibility
     root = tk.Tk()
     app = App(root)
     root.mainloop()
@@ -220,4 +361,5 @@ else:
     from .Logica import cargar_materiales
     from .Logica import solve
     from .Logica import resolve
+    from .Pasos import evaluate_flexibility
     #Toca importarlo relativo cuando se importa el modulo
