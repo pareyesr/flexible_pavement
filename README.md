@@ -2,7 +2,7 @@ To open the program, follow these steps:
 
 1. Clone the repository:
     ```
-    git clone 
+    gh repo clone pareyesr/flexible_pavement
     ```
 
 2. Create a virtual environment:
