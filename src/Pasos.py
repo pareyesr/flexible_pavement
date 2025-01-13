@@ -1,6 +1,11 @@
-from Logica import resolve
-from Logica import pred_W18
-from Logica import solve_sn
+if __name__ == "__main__":
+    from Logica import resolve
+    from Logica import pred_W18
+    from Logica import solve_sn
+else:
+    from .Logica import resolve
+    from .Logica import pred_W18
+    from .Logica import solve_sn
 import matplotlib.pyplot as plt
 import numpy as np
 #from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
