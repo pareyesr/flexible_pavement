@@ -6,6 +6,8 @@ from matplotlib.backend_bases import key_press_handler
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,NavigationToolbar2Tk)
 from matplotlib.figure import Figure
 import numpy as np
+import pandas as pd
+
 class App:
     def __init__(self, master):
         self.master = master
@@ -26,7 +28,7 @@ class App:
         # Create the tab for create or upload materials.
         mat_tab = ttk.Frame(notebook)
         notebook.add(mat_tab, text='Cargar Materiales')
-        df=self.create_mat_widgets(mat_tab)
+        DF=self.create_mat_widgets(mat_tab)
 
         # Create the tab for solution.
         sol_tab = ttk.Frame(notebook)
@@ -113,8 +115,8 @@ class App:
         delta_psi = float(self.delta_psi_entry.get())
         modulo_resiliente = float(self.modulo_resiliente_entry.get())
         #
-        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
-        DF= cargar_materiales(ruta)
+        #ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        #DF= cargar_materiales(ruta)
         
         n_sect=int(self.section_entry.get())-1
         sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
@@ -203,8 +205,8 @@ class App:
         # Botón para calcular la solución de capas
         ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(row=1, column=0, columnspan=2, pady=10)
     def calcular_sol(self):
-        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
-        DF= cargar_materiales(ruta)
+        #ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        #DF= cargar_materiales(ruta)
         lst=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:5]
         combined_data = []
         sn_data=[]
@@ -226,8 +228,8 @@ class App:
         return combined_data
     
     def recalcular_sol(self):
-        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
-        DF= cargar_materiales(ruta)
+        #ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        #DF= cargar_materiales(ruta)
         n_sect=int(self.section_entry.get())-1
         sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
         lst=resolve(DF,sect,float(self.new_sn.get()),int(self.n_layer.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:1]
@@ -258,13 +260,19 @@ class App:
         titulos=['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline']
         for i in range(len(titulos)):
             ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
-        ruta ='.\\src\\'+str(self.cruta.get())+".csv"
+        ruta ="."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv"
         if os.path.exists(ruta):
             return self.cargar_mat(tab,ruta)
         else:
-            #DF=crear_materiales(ruta)
-            x=0
-        
+            return self.crear_materiales(tab,ruta)
+    def crear_materiales(self,tab,ruta):
+        self.mat_label = ttk.Label(tab, text=str("Prueba"))
+        self.mat_label.grid(row=2, column=0, padx=10, pady=1,sticky="w")
+
+        # Botón para guardar los valores self.crear_materiales?
+        ttk.Button(tab, text="Calcular SN", command=self.crear_materiales).grid(row=5, column=0, columnspan=2, pady=10)
+        return None
+
     def cargar_mat(self,tab,ruta):
         # Mostrar el resultado de cargar el material en la interfaz
         DF_mat = cargar_materiales(ruta)
@@ -353,6 +361,7 @@ if __name__ == "__main__":
     from Logica import solve
     from Logica import resolve
     from Pasos import evaluate_flexibility
+    DF:pd.DataFrame =cargar_materiales("."+os.sep+"src"+os.sep+"default.csv")
     root = tk.Tk()
     app = App(root)
     root.mainloop()
@@ -362,4 +371,5 @@ else:
     from .Logica import solve
     from .Logica import resolve
     from .Pasos import evaluate_flexibility
+    DF:pd.DataFrame =cargar_materiales("."+os.sep+"src"+os.sep+"default.csv")
     #Toca importarlo relativo cuando se importa el modulo
