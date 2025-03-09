@@ -360,7 +360,7 @@ if __name__ == "__main__":
     from Logica import cargar_materiales
     from Logica import solve
     from Logica import resolve
-    from Pasos import evaluate_flexibility
+    from Logica import evaluate_flexibility
     DF:pd.DataFrame =cargar_materiales("."+os.sep+"src"+os.sep+"default.csv")
     root = tk.Tk()
     app = App(root)
@@ -370,6 +370,6 @@ else:
     from .Logica import cargar_materiales
     from .Logica import solve
     from .Logica import resolve
-    from .Pasos import evaluate_flexibility
+    from .Logica import evaluate_flexibility
     DF:pd.DataFrame =cargar_materiales("."+os.sep+"src"+os.sep+"default.csv")
     #Toca importarlo relativo cuando se importa el modulo
