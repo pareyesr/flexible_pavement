@@ -270,7 +270,7 @@ class App:
         self.mat_label.grid(row=2, column=0, padx=10, pady=1,sticky="w")
 
         # Botón para guardar los valores self.crear_materiales?
-        ttk.Button(tab, text="Calcular SN", command=self.crear_materiales).grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Button(tab, text="Guardar material", command=self.crear_materiales).grid(row=5, column=0, columnspan=2, pady=10)
         return None
 
     def cargar_mat(self,tab,ruta):

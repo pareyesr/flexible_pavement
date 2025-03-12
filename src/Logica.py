@@ -261,13 +261,20 @@ def solve(material_table, goal_sn, grade=0.0, embankment_cost=0.0, excavation_co
     revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
     return revalidated_sections
     
-def cargar_materiales(ruta:str)->pd.DataFrame:
+def cargar_materiales(ruta:str,mat:np.array=None)->pd.DataFrame:
     """Carga la lista de materiales a partir de un archivo de texto, devuelve un DATAFRAME"""
     if os.path.exists(ruta):
         tab_ld = pd.read_csv(ruta)
+        if mat is not None:
+            tab_ld.append(mat)
     else:
         #toca crear el archivo
         tab_ld = open(ruta,"a")
+        tab_ld.write("mat_name,sn,cost,density,unit,surface,subgrade,alkaline,min,max\n")
+        tab_ld.close()
+        tab_ld = pd.read_csv(ruta)
+        if mat is not None:
+            tab_ld.append(mat)
     return tab_ld
 
 #TODO SOLVER sobre capas hechas
