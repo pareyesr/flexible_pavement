@@ -231,6 +231,7 @@ class App:
         #ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         #DF= cargar_materiales(ruta)
         n_sect=int(self.section_entry.get())-1
+        print(DF,float(self.sn_result_label.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))
         sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
         lst=resolve(DF,sect,float(self.new_sn.get()),int(self.n_layer.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:1]
         combined_data = []
@@ -253,7 +254,7 @@ class App:
     def create_mat_widgets(self, tab):
         # Etiquetas y cajas de entrada para ingresar materiales
         ttk.Label(tab, text="Cargar datos de materiales de un archivo csv").grid(row=0, column=0, padx=0, pady=5, sticky="w")
-        self.cruta = ttk.Entry(tab)
+        self.cruta = ttk.Entry(tab,width=10)
         self.cruta.insert(0, "default")
         self.cruta.grid(row=0, column=1, padx=10, pady=5, sticky="w")
         ttk.Label(tab, text=".csv").grid(row=0, column=2, padx=0, pady=5, sticky="w")
@@ -261,17 +262,22 @@ class App:
         for i in range(len(titulos)):
             ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
         ruta ="."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv"
-        if os.path.exists(ruta):
-            return self.cargar_mat(tab,ruta)
-        else:
-            return self.crear_materiales(tab,ruta)
-    def crear_materiales(self,tab,ruta):
-        self.mat_label = ttk.Label(tab, text=str("Prueba"))
-        self.mat_label.grid(row=2, column=0, padx=10, pady=1,sticky="w")
-
-        # Botón para guardar los valores self.crear_materiales?
-        ttk.Button(tab, text="Guardar material", command=self.crear_materiales).grid(row=5, column=0, columnspan=2, pady=10)
-        return None
+        return self.cargar_mat(tab,ruta)
+    def crear_materiales(self,):
+        # Crear un nuevo material
+        lst_entrys = self.entrys
+        for i in range(len(lst_entrys)):
+            if i == 0:
+                lst_entrys[i]  = str(lst_entrys[i])
+            elif i == 4:
+                lst_entrys[i]  = str(lst_entrys[i])
+            elif i > 5:
+                lst_entrys[i]  = bool(lst_entrys[i])
+            else:
+                lst_entrys[i]  = float(lst_entrys[i])
+        DF.append(pd.Series(lst_entrys),ignore_index=True)
+        DF.to_csv("."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv",index=False)
+        return cargar_materiales("."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv")
 
     def cargar_mat(self,tab,ruta):
         # Mostrar el resultado de cargar el material en la interfaz
@@ -282,22 +288,34 @@ class App:
             for j in range(len(DF_mat.iloc[i])):
                 self.mat_label = ttk.Label(tab, text=str(DF_mat.iloc[i].iloc[j]))
                 self.mat_label.grid(row=i+2, column=j, padx=10, pady=1)
+        self.entrys=[]
+        for k in range(len(DF_mat.iloc[0])):
+            self.entrys.append(ttk.Entry(tab,width=10).grid(row=i+3, column=k, padx=10, pady=5, sticky="w"))
+        print(self.entrys)
+        # Button to save the values in the DF_mat
+        ttk.Button(tab, text="Guardar material", command=self.crear_materiales).grid(row=0, column=5, columnspan=2, pady=10)
+        """
+        new_material = []
+        for j in range(len(DF_mat.iloc[0])):
+            new_material.append(tab.grid[i][j].get())
+        DF_mat.loc[len(DF_mat)] = new_material"
+        """
         #etiquetas de entrada
-        ttk.Label(tab, text="Excavation Cost ($/cyd)").grid(row=i+3, column=0, padx=0, pady=0, sticky="w")        
-        self.exc = ttk.Entry(tab)
+        ttk.Label(tab, text="Excavation Cost ($/cyd)").grid(row=i+4, column=0, padx=0, pady=0, sticky="w")        
+        self.exc = ttk.Entry(tab,width=10)
         self.exc.insert(0, "20")
-        self.exc.grid(row=i+3, column=1, padx=10, pady=5, sticky="w")        
-        ttk.Label(tab, text="Embankment Cost ($/cyd)").grid(row=i+4, column=0, padx=0, pady=0, sticky="w")        
-        self.emb = ttk.Entry(tab)
+        self.exc.grid(row=i+4, column=1, padx=10, pady=5, sticky="w")  
+        ttk.Label(tab, text="Embankment Cost ($/cyd)").grid(row=i+5, column=0, padx=0, pady=0, sticky="w")        
+        self.emb = ttk.Entry(tab,width=10)
         self.emb.insert(0, "10")
-        self.emb.grid(row=i+4, column=1, padx=10, pady=0, sticky="w")        
+        self.emb.grid(row=i+5, column=1, padx=10, pady=0, sticky="w")        
         self.mat_result_label = ttk.Label(tab, text="")
-        self.mat_result_label.grid(row=i+3, column=j//2, columnspan=2, pady=10)
+        self.mat_result_label.grid(row=i+4, column=j//2, columnspan=2, pady=10)
         self.mat_result_label.config(text="El material de capa fue "+(resultado))
-        ttk.Label(tab, text="Grade (in)").grid(row=i+5, column=0, padx=0, pady=0, sticky="w")        
-        self.grade = ttk.Entry(tab)
+        ttk.Label(tab, text="Grade (in)").grid(row=i+6, column=0, padx=0, pady=0, sticky="w")        
+        self.grade = ttk.Entry(tab,width=10)
         self.grade.insert(0, "0.0")
-        self.grade.grid(row=i+5, column=1, padx=10, pady=5, sticky="w")        
+        self.grade.grid(row=i+6, column=1, padx=10, pady=5, sticky="w")          
         return DF_mat
         
     def create_sn_widgets(self, tab):
