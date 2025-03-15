@@ -231,7 +231,6 @@ class App:
         #ruta ='.\\src\\'+str(self.cruta.get())+".csv"
         #DF= cargar_materiales(ruta)
         n_sect=int(self.section_entry.get())-1
-        print(DF,float(self.sn_result_label.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))
         sect=solve(DF,self.calcular_sn(),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[n_sect]
         lst=resolve(DF,sect,float(self.new_sn.get()),int(self.n_layer.get()),float(self.grade.get()),float(self.emb.get()),float(self.exc.get()))[:1]
         combined_data = []
@@ -268,15 +267,18 @@ class App:
         lst_entrys = self.entrys
         for i in range(len(lst_entrys)):
             if i == 0:
-                lst_entrys[i]  = str(lst_entrys[i])
-            elif i == 4:
-                lst_entrys[i]  = str(lst_entrys[i])
-            elif i > 5:
-                lst_entrys[i]  = bool(lst_entrys[i])
+                lst_entrys[i]  = str(lst_entrys[i].get())
+            elif i==6:
+                lst_entrys[i]  = str(lst_entrys[i].get())
+            elif i > 6:
+                lst_entrys[i]  = True if bool(lst_entrys[i].get()=="True") else False
             else:
-                lst_entrys[i]  = float(lst_entrys[i])
-        DF.append(pd.Series(lst_entrys),ignore_index=True)
-        DF.to_csv("."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv",index=False)
+                lst_entrys[i]  = float(lst_entrys[i].get())
+        print(lst_entrys)
+        """DF.loc[-1]=pd.Series(lst_entrys)
+        DF.index = DF.index + 1 
+        DF = DF.sort_index()
+        DF.to_csv("."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv",index=False)"""
         return cargar_materiales("."+os.sep+"src"+os.sep+str(self.cruta.get())+".csv")
 
     def cargar_mat(self,tab,ruta):
@@ -290,16 +292,10 @@ class App:
                 self.mat_label.grid(row=i+2, column=j, padx=10, pady=1)
         self.entrys=[]
         for k in range(len(DF_mat.iloc[0])):
-            self.entrys.append(ttk.Entry(tab,width=10).grid(row=i+3, column=k, padx=10, pady=5, sticky="w"))
-        print(self.entrys)
+            self.entrys.append(ttk.Entry(tab,width=10))
+            self.entrys[k].grid(row=i+3, column=k, padx=10, pady=5, sticky="w")
         # Button to save the values in the DF_mat
         ttk.Button(tab, text="Guardar material", command=self.crear_materiales).grid(row=0, column=5, columnspan=2, pady=10)
-        """
-        new_material = []
-        for j in range(len(DF_mat.iloc[0])):
-            new_material.append(tab.grid[i][j].get())
-        DF_mat.loc[len(DF_mat)] = new_material"
-        """
         #etiquetas de entrada
         ttk.Label(tab, text="Excavation Cost ($/cyd)").grid(row=i+4, column=0, padx=0, pady=0, sticky="w")        
         self.exc = ttk.Entry(tab,width=10)
@@ -367,7 +363,7 @@ class App:
                                       Delta_PSI=delta_psi,
                                       Mr=modulo_resiliente)
         # Mostrar el resultado de SN en la interfaz
-        self.sn_result_label.config(text="El valor calculado de SN es: {:.2f}".format(valor_sn))
+        self.sn_result_label.config(text="{:.2f}".format(valor_sn))
         print("El valor calculado de SN es: {:.2f}".format(valor_sn))
         return valor_sn
 

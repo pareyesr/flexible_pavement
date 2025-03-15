@@ -65,9 +65,9 @@ class Layer():
         self.thickness = minimum_lift
         self.max_lift = material_table_row['max']
         self.cost_per_inch = self.calc_cost_per_inch()
-        self.surface_code = 1 if surface == "True" else 0
-        self.subgrade_code = 1 if subgrade == "Yes" else 0
-        self.alkaline_code = 1 if alkaline == "Yes" else 0
+        self.surface_code = 1 if bool(surface) else 0
+        self.subgrade_code = 1 if bool(subgrade) else 0
+        self.alkaline_code = 1 if bool(alkaline) else 0
         self.cost_per_sn = self.cost_per_inch / self.sn
         return None
 
