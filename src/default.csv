@@ -1,8 +1,8 @@
 mat_name,sn,min,max,density,cost,unit,surface,subgrade,alkaline
-Asphalt Surface (1/2in),0.44,1.5,4,145,130,ton,True,False,False
-Asphalt Binder (1in),0.44,3,6,140,120,ton,False,False,False
-Crushed Rock Base (3/4in minus),0.13,2,8,135,35,ton,False,False,False
-Stone Backfill (6in coarse aggregate),0.1,18,48,120,45,ton,False,False,False
-Flowable Fill (Concrete),0.2,4,60,130,650,cyd,False,False,True
-Lime Treated Subgrade,0.2,4,8,120,300,cyd,False,True,True
-Concrete Base (8in PCC),0.5,8,8,150,150,sqyd,False,False,True
+Asphalt Surface (1/2in),0.44,1.5,4.0,145.0,130.0,ton,True,False,False
+Asphalt Binder (1in),0.44,3.0,6.0,140.0,120.0,ton,False,False,False
+Crushed Rock Base (3/4in minus),0.13,2.0,8.0,135.0,35.0,ton,False,False,False
+Stone Backfill (6in coarse aggregate),0.1,18.0,48.0,120.0,45.0,ton,False,False,False
+Flowable Fill (Concrete),0.2,4.0,60.0,130.0,650.0,cyd,False,False,True
+Lime Treated Subgrade,0.2,4.0,8.0,120.0,300.0,cyd,False,True,True
+Concrete Base (8in PCC),0.5,8.0,8.0,150.0,150.0,sqyd,False,False,True
