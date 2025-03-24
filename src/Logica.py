@@ -52,37 +52,10 @@ def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
     Returns:
     float: Calculated SN value, or None if calculation fails
     """
-    # Input validation
-    if not (0.5 <= Reliavility <= 0.999):
-        return None
-    if not (0.3 <= Standard_Deviation <= 0.5):
-        return None
-    if not (1.0 <= Delta_PSI <= 3.0):
-        return None
-    if Mr <= 0 or esal <= 0:
-        return None
-        
     def f(sn):
-        if sn[0] <= 0:
-            return [float('inf')]
-        try:
-            val = predict_pavement_esal(Reliavility, Standard_Deviation, sn[0], Delta_PSI, Mr) - esal
-            return [val]
-        except:
-            return [float('inf')]
-            
-    # Try different initial guesses
-    initial_guesses = [15, 8, 4, 2]
-    for guess in initial_guesses:
-        try:
-            result = fsolve(f, np.array([guess]), full_output=True)
-            sn = result[0][0]
-            if result[2] == 1 and sn > 0:  # Check if solution was found and is positive
-                return sn
-        except:
-            continue
-            
-    return None  # Return None if no valid solution found
+        val = sn[0]
+        return predict_pavement_esal(Reliavility,Standard_Deviation,val,Delta_PSI,Mr) - esal
+    return fsolve(f,np.array([15]))[0]
 
 """
 Solucionar capa
@@ -349,26 +322,35 @@ def resolve(material_table,sect:Section,SN:float,n:int,grade=0.0, embankment_cos
     revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
     return revalidated_sections
 #from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=63442967)->tuple[np.array,np.array]:
+def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=63442967,mu_annual=0.047,sigma_annual=0.057)->tuple[np.array,np.array]:
     """
     Funtion to generate a bunch of simulated transit\n
     n:int = meses de diseño\n
     seedint = semilla de rng, 0 para no usar semilla.\n
-    return tuple of array like of size*n length of traffic and acumulative traffic at time index (monthly)
+    return tuple of 2D-array like of size*n length of traffic and acumulative traffic at time index (monthly)
     """
+    # Monthly growth rates (shape: size x n)
+    mu_monthly = mu_annual / 12
+    sigma_monthly = sigma_annual / np.sqrt(12)
     if seedint != 0:
-        np.random.default_rng(seed=seedint)  
-    #Uniform distribution between [0,1)
-    res = np.random.random(size*n)
-    acum = np.zeros(size*n)
-    for i in range(0,size*n,n):
-        res[i]=round(TPD*365/12*vc*cd)
-        acum[i]=res[i]
-        for j in range(1,n):
-            #Incrementing the distribution to [0.87-1.17) sometimes traffic decreases for the month. It is an acumulative traffic 
-            res[i+j]=round((res[i+j]+2.9)*0.3*res[i+j-1])
-            acum[i+j]=acum[i+j-1]+res[i+j]
-    return np.array(res,dtype=np.int32),np.array(acum,dtype=np.int32)
+        rng = np.random.default_rng(seed=seedint)
+        grow_rates = rng.normal(loc=mu_monthly, scale=sigma_monthly, size=(size, n))
+    else:
+        grow_rates = np.random.normal(loc=mu_monthly,scale=sigma_monthly, size=(size,n))
+    initial_monthly_trips = TPD * 365 / 12 * vc * cd
+    res = np.zeros((size, n))
+    acum = np.zeros((size, n))
+    for sim in range(size):
+        res[sim, 0] = initial_monthly_trips
+        acum[sim, 0] = initial_monthly_trips
+        for month in range(1, n):
+            # Apply compounded growth: Traffic_t = Traffic_{t-1} * (1 + growth_rate) around the mean (0.39% monthly), with 95% of values in [−2.9%, +3.7%] monthly.
+            res[sim, month] = res[sim, month-1] * (1 + grow_rates[sim, month])
+            acum[sim, month] = acum[sim, month-1] + res[sim, month]
+    # Round to integers as traffic should not be fractional
+    res = np.round(res).astype(np.int32)
+    acum = np.round(acum).astype(np.int32)
+    return res, acum 
 #print(make_simulated_transit(100,size=2,n=3))
 def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI,Mr)->int:
     """
@@ -437,24 +419,32 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
     res = np.zeros(size)
     random_transit,acumulated = make_simulated_transit(TPD=TPD,vc=vc,cd=cd,size=size,n=n,seedint=seedint)
     n_step= n//step
-    for i in range(size):
+    for sim in range(size):
         random_cost = np.zeros(n+1) #+1 needed to keep the last value in bound of size
-        i_n=i*n
-        n_break:int = calculate_break(acumulated[i_n:n+i_n],sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr)
+        acumulated_sim:np.array=acumulated[sim,:]
+        n_break:int = calculate_break(acumulated_sim,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         
         previous=0
         while n_break<=n and previous!=n_break:
             #redesign when break, and add to the cost on period n_break. 
             #TODO
             #Then take the random transit and redesign
+            transit_from_simulation= random_transit[sim,:]
             try:
-                fun=W18_linear_regression(random_transit[i_n+previous:i_n+n_break])
+                fun=W18_linear_regression(transit_from_simulation[previous:n_break])
             except np.linalg.LinAlgError:
-                print(new_trans,i)
+                print(new_trans,sim)
             #funtion is the transit for the month. need to acumulate for design
+            m, b = fun.coef  # Assuming a linear regression (degree 1) returns two coefficients [m, b]
+            
+            sum_k = ((n_step - 1) * n_step) / 2
+            sum_b = n_step * b
+            new_trans = max(m * sum_k + sum_b,0)
+            """
             new_trans = 0
             for k in range(n_step):
-                new_trans+=max(fun(k),0) #one random transit make it go negative i=14 seed=63442967
+                new_trans+=max(fun(k),0) 
+            """
             sn_rd = solve_sn(Reliavility,Standard_Deviation,Delta_PSI,Mr,new_trans) #Redesign with sn_rd
             
             rd_arr= resolve(material_table,org_sect,sn_rd,capas,grade,emb,excv)
@@ -462,8 +452,9 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
             previous=n_break  #TODO CHECK+1 (n_break comes with +1 )
             
             #TODO PENSAR BIEN EN INDICES 
-            n_break = calculate_break(acumulated[i_n:n+i_n]-acumulated[i_n+previous-1],sn_rd,Reliavility,Standard_Deviation,Delta_PSI,Mr)
+            acumulated_sim:np.array=acumulated[sim,:]
+            n_break = calculate_break(acumulated_sim-acumulated_sim[previous-1],sn_rd,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         #calculate NPV from redesign until n
-        res[i]= npv(rate,random_cost)
+        res[sim]= npv(rate,random_cost)
     return res 
 #print(npv(0.05,make_simulated_transit(100,size=2,n=3)[0]))
