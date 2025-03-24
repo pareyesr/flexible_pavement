@@ -408,7 +408,7 @@ def npv(r,arr):
     for i in range(1,len(arr)+1):
         sum_pv += arr[i-1] / ((1 + r) ** i)
     return sum_pv
-def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr,material_table,org_sect,grade,emb,excv,cost_rb,capas=2,step=3,seedint=63442967)->np.array:
+def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr,material_table,org_sect,grade,emb,excv,cost_rb,capas=2,step=3,seedint=63442967,mu_annual=0.047,sigma_annual=0.057)->np.array:
     """
     Funtion to evaluate the design flexibility\n
     size:int = tamaño de muestra aleatoria\n
@@ -417,7 +417,7 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
     return array of size length of npv (one each for all the simulations)
     """
     res = np.zeros(size)
-    random_transit,acumulated = make_simulated_transit(TPD=TPD,vc=vc,cd=cd,size=size,n=n,seedint=seedint)
+    random_transit,acumulated = make_simulated_transit(TPD=TPD,vc=vc,cd=cd,size=size,n=n,seedint=seedint,mu_annual=mu_annual,sigma_annual=sigma_annual)
     n_step= n//step
     for sim in range(size):
         random_cost = np.zeros(n+1) #+1 needed to keep the last value in bound of size
@@ -433,7 +433,11 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
             try:
                 fun=W18_linear_regression(transit_from_simulation[previous:n_break])
             except np.linalg.LinAlgError:
-                print(new_trans,sim)
+                print("linear error",sim,"/"+str(size))#624 have a linear error
+                break
+            except:
+                print("other error",sim,"/"+str(size))
+                break
             #funtion is the transit for the month. need to acumulate for design
             m, b = fun.coef  # Assuming a linear regression (degree 1) returns two coefficients [m, b]
             
@@ -455,6 +459,7 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
             acumulated_sim:np.array=acumulated[sim,:]
             n_break = calculate_break(acumulated_sim-acumulated_sim[previous-1],sn_rd,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         #calculate NPV from redesign until n
+        print(sim,"/",size)
         res[sim]= npv(rate,random_cost)
     return res 
 #print(npv(0.05,make_simulated_transit(100,size=2,n=3)[0]))

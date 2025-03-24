@@ -99,6 +99,14 @@ class App:
         self.seedint = ttk.Entry(tab)
         self.seedint.insert(0, "63442967")
         self.seedint.grid(row=9, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Annual mean growth rate:").grid(row=10, column=0, padx=10, pady=5, sticky="w")
+        self.mu_annual = ttk.Entry(tab)
+        self.mu_annual.insert(0, "0.047")
+        self.mu_annual.grid(row=10, column=1, padx=10, pady=5, sticky="w")
+        ttk.Label(tab, text="Annual standard deviation of growth rate:").grid(row=11, column=0, padx=10, pady=5, sticky="w")
+        self.sigma_annual = ttk.Entry(tab)
+        self.sigma_annual.insert(0, "0.057")
+        self.sigma_annual.grid(row=11, column=1, padx=10, pady=5, sticky="w")
         
         # Add Load button
         ttk.Button(tab, text="Load", command=lambda: self.create_rand_graph_widgets(notebook)).grid(row=0, column=5, columnspan=2, pady=10)
@@ -116,6 +124,8 @@ class App:
         capas = int(self.capas.get() or 2)
         step = int(self.step.get() or 3)
         seedint = int(self.seedint.get() or 63442967)
+        mu_annual = float(self.mu_annual.get() or 0.047)
+        sigma_annual = float(self.sigma_annual.get() or 0.057)
             
         # Load materials
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -151,7 +161,7 @@ class App:
                                        float(self.grade.get() or 0.0),
                                        float(self.emb.get() or 0.0),
                                        float(self.exc.get() or 0.0),
-                                       cost_rb, capas, step, seedint)
+                                       cost_rb, capas, step, seedint,mu_annual,sigma_annual)
             # Save results
             try:
                 np.save(ruta_arr, result)
@@ -182,6 +192,30 @@ class App:
         # Pack widgets
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Add export to Excel button
+        def export_to_excel():
+            try:
+                # Create DataFrame with results
+                df = pd.DataFrame(result, columns=['NPV'])
+                
+                # Ask user for save location
+                from tkinter import filedialog
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension='.xlsx',
+                    filetypes=[('Excel files', '*.xlsx')],
+                    title='Save Results as Excel File'
+                )
+                
+                if file_path:
+                    # Save to Excel
+                    df.to_excel(file_path, index=False, sheet_name='NPV Distribution')
+                    messagebox.showinfo('Success', 'Results exported successfully!')
+            except Exception as e:
+                messagebox.showerror('Error', f'Failed to export results: {str(e)}')
+        
+        export_btn = ttk.Button(rand_tab, text='Export to Excel', command=export_to_excel)
+        export_btn.pack(side=tk.BOTTOM, pady=5)
             
         # Switch to new tab
         notebook.select(rand_tab)
@@ -271,22 +305,40 @@ class App:
         # Create headers
         headers = ["Material", "Thickness", "Cost", "SN"]
         for i, header in enumerate(headers):
-            ttk.Label(tab, text=header).grid(row=0, column=i, padx=10, pady=5)
+            ttk.Label(tab, text=header, font=('Arial', 10, 'bold')).grid(row=0, column=i, padx=10, pady=5)
+            
+        # Calculate base row for each solution
+        current_row = 1
             
         # Display solutions
         for i, solution in enumerate(combined_data, 1):
-            ttk.Label(tab, text=f"Solution {i}").grid(row=i*4-2, column=0, columnspan=4, pady=(20,5))
-            # Iterate directly over the Section object
-            for j, layer in enumerate(solution, 0):
-                ttk.Label(tab, text=layer.name).grid(row=i*4+j, column=0, padx=10, pady=1)
-                ttk.Label(tab, text=f"{layer.thickness:.2f}").grid(row=i*4+j, column=1, padx=10, pady=1)
-                ttk.Label(tab, text=f"{layer.cost:.2f}").grid(row=i*4+j, column=2, padx=10, pady=1)
-                ttk.Label(tab, text=f"{layer.sn:.2f}").grid(row=i*4+j, column=3, padx=10, pady=1)
-            ttk.Label(tab, text=f"Total Cost: {solution.totalCost:.2f}").grid(
-                row=i*4+3, column=0, columnspan=4, pady=(5,0))
+            # Solution header with spacing
+            ttk.Label(tab, text=f"Solution {i}", font=('Arial', 10, 'bold')).grid(
+                row=current_row, column=0, columnspan=4, pady=(20,5))
+            current_row += 1
             
-        # Botón para calcular la solución de capas
-        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(row=1, column=0, columnspan=2, pady=10)
+            # Iterate directly over the Section object
+            for layer in solution:
+                # Display layer information
+                ttk.Label(tab, text=layer.name).grid(row=current_row, column=0, padx=10, pady=2, sticky='w')
+                ttk.Label(tab, text=f"{layer.thickness:.2f}").grid(row=current_row, column=1, padx=10, pady=2)
+                ttk.Label(tab, text=f"{layer.cost:.2f}").grid(row=current_row, column=2, padx=10, pady=2)
+                ttk.Label(tab, text=f"{layer.sn:.2f}").grid(row=current_row, column=3, padx=10, pady=2)
+                current_row += 1
+            
+            # Add total cost with a separator line above
+            separator = ttk.Frame(tab, height=2, relief="groove")
+            separator.grid(row=current_row, column=0, columnspan=4, sticky='ew', pady=(5,5))
+            current_row += 1
+            
+            ttk.Label(tab, text=f"Total Cost: {solution.totalCost:.2f}", font=('Arial', 10, 'bold')).grid(
+                row=current_row, column=0, columnspan=4, pady=(0,10))
+            current_row += 1
+            
+        # Botón para calcular la solución de capas - place at the top
+        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(
+            row=0, column=4, padx=20, pady=5, sticky='ne')
+            
     def calcular_sol(self):
         """Calcula la solución y devuelve los datos para mostrar en la tabla"""
         script_dir = os.path.dirname(os.path.abspath(__file__))
