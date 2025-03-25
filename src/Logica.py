@@ -403,10 +403,10 @@ def W18_linear_regression(arr:np.array)->np.poly1d:
     #plt.plot(x,y, 'yo', x, poly1d_fn(x), '--k')
     #plt.show()
     return poly1d_fn
-def npv(r,arr):
-    sum_pv = arr[0]
-    for i in range(1,len(arr)+1):
-        sum_pv += arr[i-1] / ((1 + r) ** i)
+def npv(r, arr):
+    sum_pv = 0.0
+    for i in range(len(arr)):
+        sum_pv += arr[i] / ((1 + r) ** i)
     return sum_pv
 def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr,material_table,org_sect,grade,emb,excv,cost_rb,capas=2,step=3,seedint=63442967,mu_annual=0.047,sigma_annual=0.057)->np.array:
     """
@@ -421,6 +421,7 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
     n_step= n//step
     for sim in range(size):
         random_cost = np.zeros(n+1) #+1 needed to keep the last value in bound of size
+        random_cost[0] = org_sect.totalCost + cost_rb
         acumulated_sim:np.array=acumulated[sim,:]
         n_break:int = calculate_break(acumulated_sim,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         
@@ -459,7 +460,6 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
             acumulated_sim:np.array=acumulated[sim,:]
             n_break = calculate_break(acumulated_sim-acumulated_sim[previous-1],sn_rd,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         #calculate NPV from redesign until n
-        print(sim,"/",size)
         res[sim]= npv(rate,random_cost)
     return res 
 #print(npv(0.05,make_simulated_transit(100,size=2,n=3)[0]))

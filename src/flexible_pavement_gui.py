@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from tkinter import messagebox
+import matplotlib.pyplot as plt
 
 class App:
     def __init__(self, master):
@@ -176,11 +177,29 @@ class App:
         fig = Figure(figsize=(10, 6))
         ax = fig.add_subplot(111)
             
-        # Create histogram
-        ax.hist(result, bins=30, density=True, alpha=0.75)
+        # Create histogram with labels
+        counts, bins, patches = ax.hist(result, bins=30, density=True, alpha=0.75)
+        
+        # Add value labels on top of each bar
+        for i in range(len(patches)):
+            # Get x coordinate of the bar center
+            x = (bins[i] + bins[i+1])/2
+            # Get height of the bar
+            height = counts[i]
+            # Add text label
+            ax.text(x, height, f'{height:.2%}', 
+                   ha='center', va='bottom', rotation=0,
+                   fontsize=8)
+            
         ax.set_title('NPV Distribution')
-        ax.set_xlabel('NPV')
-        ax.set_ylabel('Frequency')
+        ax.set_xlabel('Net Present Value ($)')
+        ax.set_ylabel('Relative Frequency')
+            
+        # Format x-axis with thousand separator
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+        
+        # Add grid for better readability
+        ax.grid(True, alpha=0.3)
             
         canvas = FigureCanvasTkAgg(fig, master=rand_tab)
         canvas.draw()
@@ -371,12 +390,33 @@ class App:
         titulos = ['mat_name', 'SN', 'min', 'max', 'density', 'cost', 'unit', 'surface', 'subgrade', 'alkaline']
         for i, titulo in enumerate(titulos):
             ttk.Label(tab, text=titulo).grid(row=1, column=i, padx=0, pady=5)
+
+        # Define options for dropdowns
+        unit_options = ['ton', 'cyd', 'sqyd']
+        bool_options = ['False', 'True']
+        
+        # Create dictionaries to store the comboboxes
+        self.unit_combo = ttk.Combobox(tab, values=unit_options, width=7, state='readonly')
+        self.unit_combo.set(unit_options[0])  # Set default value
+        self.unit_combo.grid(row=2, column=6, padx=0, pady=5)
+
+        self.surface_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
+        self.surface_combo.set(bool_options[0])
+        self.surface_combo.grid(row=2, column=7, padx=0, pady=5)
+
+        self.subgrade_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
+        self.subgrade_combo.set(bool_options[0])
+        self.subgrade_combo.grid(row=2, column=8, padx=0, pady=5)
+
+        self.alkaline_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
+        self.alkaline_combo.set(bool_options[0])
+        self.alkaline_combo.grid(row=2, column=9, padx=0, pady=5)
         
         # Load materials from default.csv
         script_dir = os.path.dirname(os.path.abspath(__file__))
         ruta = os.path.join(script_dir, str(self.cruta.get()) + ".csv")
         return self.cargar_mat(tab, ruta)
-
+    
     def crear_materiales(self,):
         # Create a new material
         lst_entrys = self.entrys
@@ -426,7 +466,7 @@ class App:
             preserved_widgets.append(self.cruta)
             
         for widget in tab.grid_slaves():
-            if isinstance(widget, (ttk.Label, ttk.Entry)) and widget not in preserved_widgets:
+            if isinstance(widget, (ttk.Label, ttk.Entry, ttk.Combobox)) and widget not in preserved_widgets:
                 widget.destroy()
         
         # Mostrar el resultado de cargar el material en la interfaz
@@ -451,10 +491,21 @@ class App:
         # Calculate the row for new entries (after the last material)
         entry_row = len(DF_mat) + 2
         
+        # Define options for dropdowns
+        unit_options = ['ton', 'cyd', 'sqyd']
+        bool_options = ['False', 'True']
+        
         # Create or update entry fields for new material
         self.entrys = []
-        for k in range(len(titulos)):  # Use titulos instead of DF_mat.iloc[0] for empty DataFrame
-            entry = ttk.Entry(tab, width=10)
+        for k in range(len(titulos)):
+            if titulos[k] == 'unit':
+                entry = ttk.Combobox(tab, values=unit_options, width=7, state='readonly')
+                entry.set(unit_options[0])
+            elif titulos[k] in ['surface', 'subgrade', 'alkaline']:
+                entry = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
+                entry.set(bool_options[0])
+            else:
+                entry = ttk.Entry(tab, width=10)
             entry.grid(row=entry_row, column=k, padx=10, pady=5, sticky="w")
             self.entrys.append(entry)
                 
@@ -494,6 +545,7 @@ class App:
         self.grade.grid(row=config_start_row+3, column=1, padx=10, pady=5, sticky="w")
             
         return DF_mat
+
     def create_sn_widgets(self, tab):
         """Create widgets for the SN calculation tab"""
         # Create a frame for better organization
