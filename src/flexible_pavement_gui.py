@@ -54,6 +54,11 @@ class App:
         rev_param_tab = ttk.Frame(notebook)
         notebook.add(rev_param_tab, text='Parametros evaluación por transito aleatorio')
         self.create_param_rand_widgets(rev_param_tab,notebook)
+        # Create the tab for dynamic graph visualization
+        graph_tab = ttk.Frame(notebook)
+        notebook.add(graph_tab, text='Visualización SN')
+        self.create_graph_widgets(graph_tab)
+
     def create_param_rand_widgets(self,tab,notebook):
         # Etiquetas y cajas de entrada para recalcular capas
         ttk.Label(tab, text="TPD:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
@@ -179,7 +184,7 @@ class App:
             
         # Create histogram with labels
         counts, bins, patches = ax.hist(result, bins=30, density=True, alpha=0.75)
-        
+        total=sum(counts)
         # Add value labels on top of each bar
         for i in range(len(patches)):
             # Get x coordinate of the bar center
@@ -187,7 +192,7 @@ class App:
             # Get height of the bar
             height = counts[i]
             # Add text label
-            ax.text(x, height, f'{height:.2%}', 
+            ax.text(x, height, f'{height/total:.2%}', 
                    ha='center', va='bottom', rotation=0,
                    fontsize=8)
             
@@ -608,6 +613,154 @@ class App:
         self.sn_result_label.config(text=f"SN = {sn:.2f}", foreground="dark green")
         print(f"El valor calculado de SN es: {sn:.2f}")
         return sn
+
+    def create_graph_widgets(self, parent):
+        # Create parameter frame
+        param_frame = ttk.LabelFrame(parent, text="Parámetros", padding="10")
+        param_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+
+        # Initialize parameters
+        self.graph_params = {
+            'amplitude': tk.DoubleVar(value=1.0),
+            'frequency': tk.DoubleVar(value=0.1),
+            'phase': tk.DoubleVar(value=0.0),
+            'noise': tk.DoubleVar(value=0.0),
+            'x_start': tk.DoubleVar(value=0.0),
+            'x_end': tk.DoubleVar(value=4*np.pi),
+            'degree': tk.IntVar(value=2)
+        }
+        self.function_type = tk.StringVar(value='sine')
+
+        # Create function type selector
+        ttk.Label(param_frame, text="Tipo de Función").grid(row=0, column=0, padx=5, pady=5)
+        function_combo = ttk.Combobox(param_frame, textvariable=self.function_type, 
+                                    values=['sine', 'linear', 'polynomial'], state='readonly')
+        function_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.function_type.trace_add("write", lambda *args: [self.update_parameter_visibility(), self.update_graph()])
+
+        # X-range controls
+        ttk.Label(param_frame, text="X Inicial").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.graph_params['x_start']).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(param_frame, text="X Final").grid(row=2, column=0, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.graph_params['x_end']).grid(row=2, column=1, padx=5, pady=5)
+
+        # Dynamic parameter controls
+        self.amp_label = ttk.Label(param_frame, text="Amplitud")
+        self.amp_entry = ttk.Entry(param_frame, textvariable=self.graph_params['amplitude'])
+        self.freq_label = ttk.Label(param_frame, text="Frecuencia")
+        self.freq_entry = ttk.Entry(param_frame, textvariable=self.graph_params['frequency'])
+        self.phase_label = ttk.Label(param_frame, text="Fase")
+        self.phase_entry = ttk.Entry(param_frame, textvariable=self.graph_params['phase'])
+        self.degree_label = ttk.Label(param_frame, text="Grado")
+        self.degree_entry = ttk.Entry(param_frame, textvariable=self.graph_params['degree'])
+        self.noise_label = ttk.Label(param_frame, text="Nivel de Ruido")
+        self.noise_entry = ttk.Entry(param_frame, textvariable=self.graph_params['noise'])
+
+        # Position dynamic parameters
+        self.amp_label.grid(row=3, column=0, padx=5, pady=5)
+        self.amp_entry.grid(row=3, column=1, padx=5, pady=5)
+        self.freq_label.grid(row=4, column=0, padx=5, pady=5)
+        self.freq_entry.grid(row=4, column=1, padx=5, pady=5)
+        self.phase_label.grid(row=5, column=0, padx=5, pady=5)
+        self.phase_entry.grid(row=5, column=1, padx=5, pady=5)
+        self.degree_label.grid(row=6, column=0, padx=5, pady=5)
+        self.degree_entry.grid(row=6, column=1, padx=5, pady=5)
+        self.noise_label.grid(row=7, column=0, padx=5, pady=5)
+        self.noise_entry.grid(row=7, column=1, padx=5, pady=5)
+
+        # Configure parameter tracing
+        for var in self.graph_params.values():
+            var.trace_add("write", lambda *args: self.update_graph())
+
+        # Create graph frame
+        graph_frame = ttk.LabelFrame(parent, text="Gráfico", padding="10")
+        graph_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # Create matplotlib figure
+        self.graph_fig = Figure(figsize=(6, 4), dpi=100)
+        self.graph_ax = self.graph_fig.add_subplot(111)
+
+        # Embed figure in Tkinter window
+        self.graph_canvas = FigureCanvasTkAgg(self.graph_fig, master=graph_frame)
+        self.graph_canvas.get_tk_widget().pack(fill='both', expand=True)
+
+        # Add toolbar
+        toolbar_frame = ttk.Frame(graph_frame)
+        toolbar_frame.pack(fill='x')
+        self.graph_toolbar = NavigationToolbar2Tk(self.graph_canvas, toolbar_frame)
+        self.graph_toolbar.update()
+
+        # Configure grid weights
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        # Initial setup
+        self.update_parameter_visibility()
+        self.update_graph()
+
+    def update_parameter_visibility(self):
+        func_type = self.function_type.get()
+        # Update labels and visibility
+        if func_type == 'sine':
+            self.amp_label.config(text="Amplitud")
+            self.phase_label.config(text="Fase")
+            self.freq_label.grid()
+            self.freq_entry.grid()
+            self.degree_label.grid_remove()
+            self.degree_entry.grid_remove()
+        elif func_type == 'linear':
+            self.amp_label.config(text="Pendiente")
+            self.phase_label.config(text="Intersección")
+            self.freq_label.grid_remove()
+            self.freq_entry.grid_remove()
+            self.degree_label.grid_remove()
+            self.degree_entry.grid_remove()
+        elif func_type == 'polynomial':
+            self.amp_label.config(text="Coeficiente")
+            self.phase_label.config(text="Constante")
+            self.freq_label.grid_remove()
+            self.freq_entry.grid_remove()
+            self.degree_label.grid()
+            self.degree_entry.grid()
+
+    def update_graph(self):
+        try:
+            # Get current parameters
+            func_type = self.function_type.get()
+            x_start = self.graph_params['x_start'].get()
+            x_end = self.graph_params['x_end'].get()
+            amp = self.graph_params['amplitude'].get()
+            freq = self.graph_params['frequency'].get() if func_type == 'sine' else 0
+            phase = self.graph_params['phase'].get()
+            noise = self.graph_params['noise'].get()
+            degree = self.graph_params['degree'].get() if func_type == 'polynomial' else 1
+            
+            # Generate data
+            x = np.linspace(x_start, x_end, 1000)
+            if func_type == 'sine':
+                y = amp * np.sin(freq * x + phase)
+            elif func_type == 'linear':
+                y = amp * x + phase
+            elif func_type == 'polynomial':
+                y = amp * (x ** degree) + phase
+            
+            # Add noise if specified
+            if noise > 0:
+                y += np.random.normal(0, noise, x.shape)
+            
+            # Clear and update plot
+            self.graph_ax.clear()
+            self.graph_ax.plot(x, y, label=f'Función {func_type.capitalize()}')
+            self.graph_ax.set_title(f"Visualización de Función {func_type.capitalize()}")
+            self.graph_ax.set_xlabel("Parámetro")
+            self.graph_ax.set_ylabel("Valor")
+            self.graph_ax.grid(True)
+            self.graph_ax.legend()
+            
+            self.graph_canvas.draw()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en los parámetros: {str(e)}")
 
 # Crear la aplicación
 if __name__ == "__main__":
