@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from tkinter import messagebox
 import matplotlib.pyplot as plt
-
+from tkinter import filedialog
 class App:
     def __init__(self, master):
         self.master = master
@@ -23,6 +23,7 @@ class App:
         self.cruta = None
         self.save_button = None
         self.entrys = []
+        self.data_series = None
         
         self.create_widgets()
 
@@ -56,7 +57,7 @@ class App:
         self.create_param_rand_widgets(rev_param_tab,notebook)
         # Create the tab for dynamic graph visualization
         graph_tab = ttk.Frame(notebook)
-        notebook.add(graph_tab, text='Visualización SN')
+        notebook.add(graph_tab, text='Visualización Función')
         self.create_graph_widgets(graph_tab)
 
     def create_param_rand_widgets(self,tab,notebook):
@@ -620,147 +621,204 @@ class App:
         param_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
         # Initialize parameters
-        self.graph_params = {
-            'amplitude': tk.DoubleVar(value=1.0),
-            'frequency': tk.DoubleVar(value=0.1),
-            'phase': tk.DoubleVar(value=0.0),
-            'noise': tk.DoubleVar(value=0.0),
+        self.global_params = {
             'x_start': tk.DoubleVar(value=0.0),
-            'x_end': tk.DoubleVar(value=4*np.pi),
-            'degree': tk.IntVar(value=2)
+            'x_end': tk.DoubleVar(value=12.0),
+            'noise': tk.DoubleVar(value=0.0)
         }
-        self.function_type = tk.StringVar(value='sine')
 
-        # Create function type selector
-        ttk.Label(param_frame, text="Tipo de Función").grid(row=0, column=0, padx=5, pady=5)
-        function_combo = ttk.Combobox(param_frame, textvariable=self.function_type, 
-                                    values=['sine', 'linear', 'polynomial'], state='readonly')
-        function_combo.grid(row=0, column=1, padx=5, pady=5)
-        self.function_type.trace_add("write", lambda *args: [self.update_parameter_visibility(), self.update_graph()])
+        self.function_params = {
+            'sine': {
+                'amplitude': tk.DoubleVar(value=1.0),
+                'frequency': tk.DoubleVar(value=0.1),
+                'phase': tk.DoubleVar(value=0.0)
+            },
+            'linear': {
+                'slope': tk.DoubleVar(value=1.0),
+                'intercept': tk.DoubleVar(value=0.0)
+            },
+            'logarithmic': {
+                'coefficient': tk.DoubleVar(value=1.0),
+                'base': tk.DoubleVar(value=10.0),
+                'constant': tk.DoubleVar(value=0.0),
+                'shift': tk.DoubleVar(value=0.0)  # New parameter for horizontal shift
+            }
+        }
+
+        # Add traces to all parameters
+        for var in self.global_params.values():
+            var.trace_add("write", lambda *args: self.update_graph())
+        
+        for func in self.function_params:
+            for var in self.function_params[func].values():
+                var.trace_add("write", lambda *args: self.update_graph())
+
+        # Function selection listbox
+        ttk.Label(param_frame, text="Funciones").grid(row=0, column=0, padx=5, pady=5)
+        self.function_listbox = tk.Listbox(param_frame, selectmode=tk.MULTIPLE, height=3)
+        self.function_listbox.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        for func in ['sine', 'linear', 'logarithmic']:
+            self.function_listbox.insert(tk.END, func)
+        self.function_listbox.bind('<<ListboxSelect>>', self.on_function_select)
+        self.selected_functions = []
 
         # X-range controls
         ttk.Label(param_frame, text="X Inicial").grid(row=1, column=0, padx=5, pady=5)
-        ttk.Entry(param_frame, textvariable=self.graph_params['x_start']).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.global_params['x_start']).grid(row=1, column=1, padx=5, pady=5)
         ttk.Label(param_frame, text="X Final").grid(row=2, column=0, padx=5, pady=5)
-        ttk.Entry(param_frame, textvariable=self.graph_params['x_end']).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.global_params['x_end']).grid(row=2, column=1, padx=5, pady=5)
 
-        # Dynamic parameter controls
-        self.amp_label = ttk.Label(param_frame, text="Amplitud")
-        self.amp_entry = ttk.Entry(param_frame, textvariable=self.graph_params['amplitude'])
-        self.freq_label = ttk.Label(param_frame, text="Frecuencia")
-        self.freq_entry = ttk.Entry(param_frame, textvariable=self.graph_params['frequency'])
-        self.phase_label = ttk.Label(param_frame, text="Fase")
-        self.phase_entry = ttk.Entry(param_frame, textvariable=self.graph_params['phase'])
-        self.degree_label = ttk.Label(param_frame, text="Grado")
-        self.degree_entry = ttk.Entry(param_frame, textvariable=self.graph_params['degree'])
-        self.noise_label = ttk.Label(param_frame, text="Nivel de Ruido")
-        self.noise_entry = ttk.Entry(param_frame, textvariable=self.graph_params['noise'])
+        # Dynamic parameters container
+        self.func_params_container = ttk.Frame(param_frame)
+        self.func_params_container.grid(row=3, column=0, columnspan=2, sticky="nsew")
 
-        # Position dynamic parameters
-        self.amp_label.grid(row=3, column=0, padx=5, pady=5)
-        self.amp_entry.grid(row=3, column=1, padx=5, pady=5)
-        self.freq_label.grid(row=4, column=0, padx=5, pady=5)
-        self.freq_entry.grid(row=4, column=1, padx=5, pady=5)
-        self.phase_label.grid(row=5, column=0, padx=5, pady=5)
-        self.phase_entry.grid(row=5, column=1, padx=5, pady=5)
-        self.degree_label.grid(row=6, column=0, padx=5, pady=5)
-        self.degree_entry.grid(row=6, column=1, padx=5, pady=5)
-        self.noise_label.grid(row=7, column=0, padx=5, pady=5)
-        self.noise_entry.grid(row=7, column=1, padx=5, pady=5)
-
-        # Configure parameter tracing
-        for var in self.graph_params.values():
-            var.trace_add("write", lambda *args: self.update_graph())
-
-        # Create graph frame
+        # Noise controls
+        ttk.Label(param_frame, text="Nivel de Ruido").grid(row=4, column=0, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.global_params['noise']).grid(row=4, column=1, padx=5, pady=5)
+        ttk.Separator(param_frame, orient='horizontal').grid(row=5, column=0, columnspan=2, sticky="ew", pady=5)
+        
+        #Cargar datos
+        ttk.Button(param_frame, text="Cargar Datos", command=self.load_data_series).grid(row=6, column=0, padx=5, pady=5)
+        self.data_label = ttk.Label(param_frame, text="Archivo: Ninguno")
+        self.data_label.grid(row=6, column=1, padx=5, pady=5)
+        # Create graph frame and canvas (same as before)
         graph_frame = ttk.LabelFrame(parent, text="Gráfico", padding="10")
         graph_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-        # Create matplotlib figure
         self.graph_fig = Figure(figsize=(6, 4), dpi=100)
         self.graph_ax = self.graph_fig.add_subplot(111)
-
-        # Embed figure in Tkinter window
         self.graph_canvas = FigureCanvasTkAgg(self.graph_fig, master=graph_frame)
         self.graph_canvas.get_tk_widget().pack(fill='both', expand=True)
-
-        # Add toolbar
         toolbar_frame = ttk.Frame(graph_frame)
         toolbar_frame.pack(fill='x')
         self.graph_toolbar = NavigationToolbar2Tk(self.graph_canvas, toolbar_frame)
         self.graph_toolbar.update()
 
-        # Configure grid weights
-        parent.columnconfigure(1, weight=1)
-        parent.rowconfigure(0, weight=1)
-
-        # Initial setup
-        self.update_parameter_visibility()
+        # Initial update
+        self.update_parameter_ui()
         self.update_graph()
 
-    def update_parameter_visibility(self):
-        func_type = self.function_type.get()
-        # Update labels and visibility
-        if func_type == 'sine':
-            self.amp_label.config(text="Amplitud")
-            self.phase_label.config(text="Fase")
-            self.freq_label.grid()
-            self.freq_entry.grid()
-            self.degree_label.grid_remove()
-            self.degree_entry.grid_remove()
-        elif func_type == 'linear':
-            self.amp_label.config(text="Pendiente")
-            self.phase_label.config(text="Intersección")
-            self.freq_label.grid_remove()
-            self.freq_entry.grid_remove()
-            self.degree_label.grid_remove()
-            self.degree_entry.grid_remove()
-        elif func_type == 'polynomial':
-            self.amp_label.config(text="Coeficiente")
-            self.phase_label.config(text="Constante")
-            self.freq_label.grid_remove()
-            self.freq_entry.grid_remove()
-            self.degree_label.grid()
-            self.degree_entry.grid()
+    def on_function_select(self, event):
+        selected_indices = self.function_listbox.curselection()
+        self.selected_functions = [self.function_listbox.get(i) for i in selected_indices]
+        self.update_parameter_ui()
+        self.update_graph()
+    def load_data_series(self):
+        file_path = filedialog.askopenfilename(
+            title="Seleccionar archivo de datos",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if file_path:
+            try:
+                # Read raw data as strings
+                raw_data = np.loadtxt(file_path, dtype=str, )
+                # Convert commas to periods and parse to floats
+                y_values = [float(item.replace(',', '.')) for item in raw_data]
+                # Generate x values as indices starting from 0
+                x_values = np.arange(len(y_values))
+                # Create 2D array with x indices and y values
+                self.data_series = np.column_stack((x_values, y_values))
+                self.data_label.config(text=f"Archivo: {os.path.basename(file_path)}")
+                self.update_graph()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Error cargando datos:\n{str(e)}")
+                self.data_series = None
+                self.data_label.config(text="Archivo: Ninguno")
+
+    def update_parameter_ui(self):
+        # Clear existing widgets
+        for widget in self.func_params_container.winfo_children():
+            widget.destroy()
+        
+        current_row = 0
+        for func in self.selected_functions:
+            # Function header
+            ttk.Label(self.func_params_container, 
+                    text=f"{func.capitalize()} Parámetros").grid(row=current_row, column=0, columnspan=2, sticky="w")
+            current_row += 1
+            
+            # Parameters
+            params = self.function_params[func]
+            for param_name, var in params.items():
+                ttk.Label(self.func_params_container, text=param_name.capitalize()).grid(
+                    row=current_row, column=0, padx=5, pady=2, sticky="e")
+                ttk.Entry(self.func_params_container, textvariable=var).grid(
+                    row=current_row, column=1, padx=5, pady=2, sticky="w")
+                current_row += 1
+            
+            # Separator
+            ttk.Separator(self.func_params_container, orient='horizontal').grid(
+                row=current_row, column=0, columnspan=2, sticky="ew", pady=5)
+            current_row += 1
 
     def update_graph(self):
         try:
-            # Get current parameters
-            func_type = self.function_type.get()
-            x_start = self.graph_params['x_start'].get()
-            x_end = self.graph_params['x_end'].get()
-            amp = self.graph_params['amplitude'].get()
-            freq = self.graph_params['frequency'].get() if func_type == 'sine' else 0
-            phase = self.graph_params['phase'].get()
-            noise = self.graph_params['noise'].get()
-            degree = self.graph_params['degree'].get() if func_type == 'polynomial' else 1
-            
-            # Generate data
+            x_start = self.global_params['x_start'].get()
+            x_end = self.global_params['x_end'].get()
+            noise_level = self.global_params['noise'].get()
             x = np.linspace(x_start, x_end, 1000)
-            if func_type == 'sine':
-                y = amp * np.sin(freq * x + phase)
-            elif func_type == 'linear':
-                y = amp * x + phase
-            elif func_type == 'polynomial':
-                y = amp * (x ** degree) + phase
-            
-            # Add noise if specified
-            if noise > 0:
-                y += np.random.normal(0, noise, x.shape)
-            
-            # Clear and update plot
+            y_total = np.zeros_like(x)
+
+            # Clear previous plot
             self.graph_ax.clear()
-            self.graph_ax.plot(x, y, label=f'Función {func_type.capitalize()}')
-            self.graph_ax.set_title(f"Visualización de Función {func_type.capitalize()}")
-            self.graph_ax.set_xlabel("Parámetro")
-            self.graph_ax.set_ylabel("Valor")
-            self.graph_ax.grid(True)
-            self.graph_ax.legend()
             
+            # Plot data series first (as bars)
+            if self.data_series is not None:
+                x_data = self.data_series[:, 0]
+                y_data = self.data_series[:, 1]
+                self.graph_ax.bar(x_data, y_data, alpha=0.3, 
+                                color='gray', width=0.8, 
+                                label='Datos Experimentales', 
+                                edgecolor='black')
+
+            # Calculate and plot combined function
+            for func in self.selected_functions:
+                params = self.function_params[func]
+                if func == 'sine':
+                    y = params['amplitude'].get() * np.sin(
+                        params['frequency'].get() * x + 
+                        params['phase'].get()
+                    )
+                elif func == 'linear':
+                    y = (params['slope'].get() * x + 
+                        params['intercept'].get())
+                elif func == 'logarithmic':
+                    shift = params['shift'].get()
+                    base = params['base'].get()
+                    # Ensure input to log is positive
+                    valid_x = x + shift
+                    valid_x[valid_x <= 0] = 1e-9  # Avoid log(0)
+                    y = (params['coefficient'].get() * np.log(valid_x)/np.log(base) + 
+                        params['constant'].get())
+                y_total += y
+
+            # Add noise and plot function line
+            if noise_level > 0:
+                y_total += np.random.normal(0, noise_level, x.shape)
+            
+            self.graph_ax.plot(x, y_total, linewidth=2, color='red', 
+                            label='Función Combinada')
+
+            # Configure plot aesthetics
+            self.graph_ax.set_title("Comparación de Función y Datos")
+            self.graph_ax.set_xlabel("Variable Independiente (X)")
+            self.graph_ax.set_ylabel("Variable Dependiente (Y)")
+            self.graph_ax.grid(True, linestyle='--', alpha=0.7)
+            self.graph_ax.legend(loc='upper right')
+            
+            # Adjust x-axis limits if data exists
+            if self.data_series is not None:
+                data_x_min = np.min(self.data_series[:, 0])
+                data_x_max = np.max(self.data_series[:, 0])
+                current_x_min, current_x_max = self.graph_ax.get_xlim()
+                new_x_min = min(current_x_min, data_x_min - 0.5)
+                new_x_max = max(current_x_max, data_x_max + 0.5)
+                self.graph_ax.set_xlim(new_x_min, new_x_max)
+
             self.graph_canvas.draw()
-            
+
         except Exception as e:
-            messagebox.showerror("Error", f"Error en los parámetros: {str(e)}")
+            messagebox.showerror("Error", f"Error actualizando gráfico:\n{str(e)}")
 
 # Crear la aplicación
 if __name__ == "__main__":
