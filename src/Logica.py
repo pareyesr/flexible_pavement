@@ -4,6 +4,7 @@ from scipy.optimize import fsolve
 import pandas as pd
 import os
 from itertools import combinations 
+import multiprocessing
 # MPA to PSI = x * 145.03773773
 
 from scipy.stats import norm
@@ -11,14 +12,13 @@ from scipy.stats import norm
 def pred_W18(tpd:int,vc:float,cd:float,i:float,n:int):
     """
     TPD:int = Trafico promedio diario\n
-    vc:float [0-1]= % Vehículos pesados o comerciales\n
+    vc:float =Distribución por sentido (usalmente 0.5)\n
     cd:float =Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)\n
     i:float =indice de crecimiento \n
     n:int =años de diseño\n
-    return -> 365*TPD*VC*CD*((1+i)^n-1)/ln(1+i)\n
+    return -> 365*TPD*VC*CD*(1+i)^n/ln(1+i)\n
     """
-    #TODO Acá se debe usar un FC para pasar de numero de caminones a NESE o ESALS
-    return 365*tpd*vc*cd*((1+i)**n-1)/math.log(1+i)
+    return 365*tpd*vc*cd*(1+i)**n/math.log(1+i)
 
 
 def predict_pavement_esal(r, so, sn, psi, mr):
@@ -105,9 +105,8 @@ class Section(list): # subclass list just for sanity
         super().__init__(*layers)
 
 def make_material_list(material_table:pd.DataFrame)->list[Layer]:
-    #TODO make sure Material list is sorted by surface material on top
-    return [Layer(material_table.iloc[i]) for i in range(len(material_table))]
-
+    sorted_df = material_table.sort_values(by='surface', ascending=False)
+    return [Layer(sorted_df.iloc[i]) for i in range(len(sorted_df))]
 
 def make_trial_section(material_list) -> Section:
     """Depreciated. Use make_possible_sections instead"""
@@ -327,12 +326,9 @@ def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=6344
     """
     Funtion to generate a bunch of simulated transit\n
     n:int = meses de diseño\n
-    vc:float = % Vehículos pesados o comerciales (B + C)
-    cd:float = Carril de diseño\n
     seedint = semilla de rng, 0 para no usar semilla.\n
     return tuple of 2D-array like of size*n length of traffic and acumulative traffic at time index (monthly)
     """
-    #TODO make it possible to make the median and sigma of the growth rate dependant on period, f(t) = mu
     # Monthly growth rates (shape: size x n)
     mu_monthly = mu_annual / 12
     sigma_monthly = sigma_annual / np.sqrt(12)
@@ -342,7 +338,6 @@ def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=6344
     else:
         grow_rates = np.random.normal(loc=mu_monthly,scale=sigma_monthly, size=(size,n))
     initial_monthly_trips = TPD * 365 / 12 * vc * cd
-    #TODO NE? where is transformed to? NE=N*FC. Probably better to fix here and change the name from transit to ESALS or W18
     res = np.zeros((size, n))
     acum = np.zeros((size, n))
     for sim in range(size):
@@ -359,7 +354,7 @@ def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=6344
 #print(make_simulated_transit(100,size=2,n=3))
 def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI,Mr)->int:
     """
-    arr: array like with acumulative ESALS\n
+    arr: array like with acumulative transit\n
     Makes a binary search for the postion when the design fails first\n
     return len(arr)+1 if doesnt fail
     """
@@ -400,9 +395,14 @@ def W18_linear_regression(arr:np.array)->np.poly1d:
     """
     x= np.arange(len(arr))
     y = arr
-    poly = np.polynomial.Polynomial.fit(x, y, deg=1)
-    # Convert to standard form without domain scaling
-    return poly.convert()
+    #m, b = np.polyfit(x, y, deg=1)
+    #plt.axline(xy1=(0, b), slope=m, label=f'$y = {m:.1f}x {b:+.1f}$')
+
+    coef = np.polyfit(x,y,1)
+    poly1d_fn = np.poly1d(coef) 
+    #plt.plot(x,y, 'yo', x, poly1d_fn(x), '--k')
+    #plt.show()
+    return poly1d_fn
 def npv(r, arr):
     sum_pv = 0.0
     for i in range(len(arr)):
@@ -422,11 +422,11 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
     for sim in range(size):
         random_cost = np.zeros(n+1) #+1 needed to keep the last value in bound of size
         random_cost[0] = org_sect.totalCost + cost_rb
-        acumulated_sim:np.array=acumulated[sim,:] #TODO Needs to be ESALS, not acumulated transit. Check
+        acumulated_sim:np.array=acumulated[sim,:]
         n_break:int = calculate_break(acumulated_sim,sn_design,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         
         previous=0
-        while n_break<n and previous!=n_break:
+        while n_break<=n and previous!=n_break:
             #redesign when break, and add to the cost on period n_break. 
             #TODO
             #Then take the random transit and redesign
@@ -456,7 +456,8 @@ def evaluate_flexibility(TPD,vc,cd,size,n,rate,sn_design,Reliavility,Standard_De
             random_cost[n_break]= rd_arr[0].totalCost + cost_rb#cost of building the redesign 
             previous=n_break  #TODO CHECK+1 (n_break comes with +1 )
             
-            acumulated_sim:np.array=acumulated[sim,:] #TODO Needs to be ESALS, not acumulated transit. Check
+            #TODO PENSAR BIEN EN INDICES 
+            acumulated_sim:np.array=acumulated[sim,:]
             n_break = calculate_break(acumulated_sim-acumulated_sim[previous-1],sn_rd,Reliavility,Standard_Deviation,Delta_PSI,Mr)
         #calculate NPV from redesign until n
         res[sim]= npv(rate,random_cost)
