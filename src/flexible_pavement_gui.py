@@ -10,6 +10,7 @@ import pandas as pd
 from tkinter import messagebox
 import matplotlib.pyplot as plt
 from tkinter import filedialog
+from scipy.optimize import curve_fit
 class App:
     def __init__(self, master):
         self.master = master
@@ -45,20 +46,21 @@ class App:
 
         # Create the tab for solution.
         sol_tab = ttk.Frame(notebook)
-        notebook.add(sol_tab, text='Capas solución')
+        notebook.add(sol_tab, text='Solución')
         self.create_sol_widgets(sol_tab)
-        # Create the tab for re-solution.
-        resol_tab = ttk.Frame(notebook)
-        notebook.add(resol_tab, text='Modificar capas')
-        self.create_resol_widgets(resol_tab)
-        # Create the tab for the parameters for the random transit evaluation
+
+        # Create the tab for parameters evaluation
         rev_param_tab = ttk.Frame(notebook)
-        notebook.add(rev_param_tab, text='Parametros evaluación por transito aleatorio')
-        self.create_param_rand_widgets(rev_param_tab,notebook)
-        # Create the tab for dynamic graph visualization
+        notebook.add(rev_param_tab, text='Parámetros Evaluación')
+        self.create_param_rand_widgets(rev_param_tab, notebook)
+
+        # Create the tab for graph visualization
         graph_tab = ttk.Frame(notebook)
-        notebook.add(graph_tab, text='Visualización Función')
+        notebook.add(graph_tab, text='Visualización')
         self.create_graph_widgets(graph_tab)
+
+        # Pack all tabs
+        notebook.pack(expand=1, fill='both')
 
     def create_param_rand_widgets(self,tab,notebook):
         # Etiquetas y cajas de entrada para recalcular capas
@@ -616,92 +618,270 @@ class App:
         return sn
 
     def create_graph_widgets(self, parent):
-        # Create parameter frame
-        param_frame = ttk.LabelFrame(parent, text="Parámetros", padding="10")
-        param_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
-        # Initialize parameters
+        # Initialize global parameters
         self.global_params = {
             'x_start': tk.DoubleVar(value=0.0),
             'x_end': tk.DoubleVar(value=12.0),
             'noise': tk.DoubleVar(value=0.0)
         }
 
+        # Initialize function parameters
         self.function_params = {
-            'sine': {
-                'amplitude': tk.DoubleVar(value=1.0),
-                'frequency': tk.DoubleVar(value=0.1),
-                'phase': tk.DoubleVar(value=0.0)
-            },
             'linear': {
                 'slope': tk.DoubleVar(value=1.0),
                 'intercept': tk.DoubleVar(value=0.0)
             },
             'logarithmic': {
-                'coefficient': tk.DoubleVar(value=1.0),
-                'base': tk.DoubleVar(value=10.0),
-                'constant': tk.DoubleVar(value=0.0),
-                'shift': tk.DoubleVar(value=0.0)  # New parameter for horizontal shift
+                'a': tk.DoubleVar(value=1.0),
+                'b': tk.DoubleVar(value=0.0)
+            },
+            'exponential': {
+                'a': tk.DoubleVar(value=1.0),
+                'b': tk.DoubleVar(value=0.1)
+            },
+            'polynomial': {
+                'a': tk.DoubleVar(value=1.0),
+                'b': tk.DoubleVar(value=0.0),
+                'c': tk.DoubleVar(value=0.0)
             }
         }
 
-        # Add traces to all parameters
-        for var in self.global_params.values():
-            var.trace_add("write", lambda *args: self.update_graph())
+        param_frame = ttk.LabelFrame(parent, text="Parámetros", padding="10")
+        param_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+
+        # Fitting type selection
+        ttk.Label(param_frame, text="Tipo de Ajuste:").grid(row=0, column=0, padx=5, pady=5)
+        self.fit_type = tk.StringVar(value="manual")
+        ttk.Radiobutton(param_frame, text="Manual", variable=self.fit_type, value="manual").grid(row=0, column=1, padx=5, pady=5)
+        ttk.Radiobutton(param_frame, text="Autoajuste", variable=self.fit_type, value="auto").grid(row=0, column=2, padx=5, pady=5)
+
+        # Create container for dynamic parameters
+        self.manual_params_container = ttk.LabelFrame(param_frame, text="Parámetros de Ajuste Manual", padding="10")
+        self.auto_params_container = ttk.LabelFrame(param_frame, text="Parámetros de Autoajuste", padding="10")
         
-        for func in self.function_params:
-            for var in self.function_params[func].values():
-                var.trace_add("write", lambda *args: self.update_graph())
-
-        # Function selection listbox
-        ttk.Label(param_frame, text="Funciones").grid(row=0, column=0, padx=5, pady=5)
-        self.function_listbox = tk.Listbox(param_frame, selectmode=tk.MULTIPLE, height=3)
-        self.function_listbox.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        for func in ['sine', 'linear', 'logarithmic']:
-            self.function_listbox.insert(tk.END, func)
-        self.function_listbox.bind('<<ListboxSelect>>', self.on_function_select)
-        self.selected_functions = []
-
-        # X-range controls
-        ttk.Label(param_frame, text="X Inicial").grid(row=1, column=0, padx=5, pady=5)
-        ttk.Entry(param_frame, textvariable=self.global_params['x_start']).grid(row=1, column=1, padx=5, pady=5)
-        ttk.Label(param_frame, text="X Final").grid(row=2, column=0, padx=5, pady=5)
-        ttk.Entry(param_frame, textvariable=self.global_params['x_end']).grid(row=2, column=1, padx=5, pady=5)
-
-        # Dynamic parameters container
-        self.func_params_container = ttk.Frame(param_frame)
-        self.func_params_container.grid(row=3, column=0, columnspan=2, sticky="nsew")
-
-        # Noise controls
-        ttk.Label(param_frame, text="Nivel de Ruido").grid(row=4, column=0, padx=5, pady=5)
-        ttk.Entry(param_frame, textvariable=self.global_params['noise']).grid(row=4, column=1, padx=5, pady=5)
-        ttk.Separator(param_frame, orient='horizontal').grid(row=5, column=0, columnspan=2, sticky="ew", pady=5)
+        # Pack containers
+        self.manual_params_container.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.auto_params_container.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
         
-        #Cargar datos
-        ttk.Button(param_frame, text="Cargar Datos", command=self.load_data_series).grid(row=6, column=0, padx=5, pady=5)
+        # Initially show manual parameters
+        self.auto_params_container.grid_remove()
+        
+        # Bind fit type change
+        self.fit_type.trace('w', self.update_parameter_ui)
+        
+        # Cargar datos button
+        ttk.Button(param_frame, text="Cargar Datos", command=self.load_data_series).grid(row=2, column=0, padx=5, pady=5)
         self.data_label = ttk.Label(param_frame, text="Archivo: Ninguno")
-        self.data_label.grid(row=6, column=1, padx=5, pady=5)
-        # Create graph frame and canvas (same as before)
+        self.data_label.grid(row=2, column=1, padx=5, pady=5)
+
+        # Create plot frame
         graph_frame = ttk.LabelFrame(parent, text="Gráfico", padding="10")
         graph_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # Create figure and canvas
         self.graph_fig = Figure(figsize=(6, 4), dpi=100)
         self.graph_ax = self.graph_fig.add_subplot(111)
         self.graph_canvas = FigureCanvasTkAgg(self.graph_fig, master=graph_frame)
         self.graph_canvas.get_tk_widget().pack(fill='both', expand=True)
-        toolbar_frame = ttk.Frame(graph_frame)
-        toolbar_frame.pack(fill='x')
-        self.graph_toolbar = NavigationToolbar2Tk(self.graph_canvas, toolbar_frame)
-        self.graph_toolbar.update()
 
-        # Initial update
+        # Initialize selection
+        self.selected_functions = []
         self.update_parameter_ui()
-        self.update_graph()
 
     def on_function_select(self, event):
         selected_indices = self.function_listbox.curselection()
         self.selected_functions = [self.function_listbox.get(i) for i in selected_indices]
         self.update_parameter_ui()
         self.update_graph()
+
+    def update_parameter_ui(self, *args):
+        # Clear existing widgets
+        for widget in self.manual_params_container.winfo_children():
+            widget.destroy()
+        for widget in self.auto_params_container.winfo_children():
+            widget.destroy()
+
+        if self.fit_type.get() == "manual":
+            # Show manual parameters
+            self.auto_params_container.grid_remove()
+            self.manual_params_container.grid()
+            
+            # Manual fitting parameters
+            ttk.Label(self.manual_params_container, text="Funciones").grid(row=0, column=0, padx=5, pady=5)
+            self.function_listbox = tk.Listbox(self.manual_params_container, selectmode=tk.MULTIPLE, height=3)
+            self.function_listbox.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+            for func in ['linear', 'logarithmic', 'exponential', 'polynomial']:
+                self.function_listbox.insert(tk.END, func)
+            self.function_listbox.bind('<<ListboxSelect>>', self.on_function_select)
+
+            # Add parameter controls for each selected function
+            row = 1
+            for func_name in self.selected_functions:
+                ttk.Label(self.manual_params_container, text=f"Parámetros {func_name}").grid(row=row, column=0, columnspan=2, padx=5, pady=5)
+                row += 1
+                
+                params = self.function_params[func_name]
+                for param_name, param_var in params.items():
+                    ttk.Label(self.manual_params_container, text=param_name).grid(row=row, column=0, padx=5, pady=2)
+                    ttk.Entry(self.manual_params_container, textvariable=param_var).grid(row=row, column=1, padx=5, pady=2)
+                    row += 1
+
+            # Add X-range and noise controls only if functions are selected
+            if self.selected_functions:
+                ttk.Label(self.manual_params_container, text="X Inicial").grid(row=row, column=0, padx=5, pady=5)
+                ttk.Entry(self.manual_params_container, textvariable=self.global_params['x_start']).grid(row=row, column=1, padx=5, pady=5)
+                row += 1
+                
+                ttk.Label(self.manual_params_container, text="X Final").grid(row=row, column=0, padx=5, pady=5)
+                ttk.Entry(self.manual_params_container, textvariable=self.global_params['x_end']).grid(row=row, column=1, padx=5, pady=5)
+                row += 1
+
+                # Noise controls
+                ttk.Label(self.manual_params_container, text="Nivel de Ruido").grid(row=row, column=0, padx=5, pady=5)
+                ttk.Entry(self.manual_params_container, textvariable=self.global_params['noise']).grid(row=row, column=1, padx=5, pady=5)
+                row += 1
+
+                # Add Update Graph button
+                ttk.Button(self.manual_params_container, text="Actualizar Gráfico", command=self.update_graph).grid(row=row, column=0, columnspan=2, pady=5)
+
+        else:  # auto
+            # Show auto parameters
+            self.manual_params_container.grid_remove()
+            self.auto_params_container.grid()
+            
+            # Auto fitting parameters
+            ttk.Label(self.auto_params_container, text="Tipo de Ajuste Automático:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+            fit_types = ['linear', 'log', 'exp', 'poly']
+            self.auto_fit_type = tk.StringVar(value="linear")
+            ttk.Combobox(self.auto_params_container, textvariable=self.auto_fit_type, values=fit_types, state='readonly').grid(row=0, column=1, padx=5, pady=5)
+            
+            ttk.Button(self.auto_params_container, text="Ajustar Automáticamente", command=self.auto_fit).grid(row=1, column=0, columnspan=2, pady=5)
+
+    def auto_fit(self):
+        if self.data_series is None:
+            messagebox.showerror("Error", "Por favor, cargue datos primero")
+            return
+
+        try:
+            # Extract data
+            x_data = self.data_series[:, 0]
+            y_data = self.data_series[:, 1]
+            
+            # Get selected fit type
+            fit_type = self.auto_fit_type.get()
+            
+            # Perform fitting
+            if fit_type == 'linear':
+                popt, _ = curve_fit(lambda x, a, b: a * x + b, x_data, y_data)
+                self.mean_func = lambda x: popt[0] * x + popt[1]
+                self.std_func = lambda x: np.std(y_data - self.mean_func(x_data))
+                
+                # Update manual parameters if linear is selected
+                if 'linear' in self.selected_functions:
+                    self.function_params['linear']['slope'].set(popt[0])
+                    self.function_params['linear']['intercept'].set(popt[1])
+                    
+            elif fit_type == 'log':
+                popt, _ = curve_fit(lambda x, a, b: a * np.log(x + 1) + b, x_data, y_data)
+                self.mean_func = lambda x: popt[0] * np.log(x + 1) + popt[1]
+                self.std_func = lambda x: np.std(y_data - self.mean_func(x_data))
+                
+                # Update manual parameters if logarithmic is selected
+                if 'logarithmic' in self.selected_functions:
+                    self.function_params['logarithmic']['a'].set(popt[0])
+                    self.function_params['logarithmic']['b'].set(popt[1])
+                    
+            elif fit_type == 'exp':
+                popt, _ = curve_fit(lambda x, a, b: a * np.exp(b * x), x_data, y_data)
+                self.mean_func = lambda x: popt[0] * np.exp(popt[1] * x)
+                self.std_func = lambda x: np.std(y_data - self.mean_func(x_data))
+                
+                # Update manual parameters if exponential is selected
+                if 'exponential' in self.selected_functions:
+                    self.function_params['exponential']['a'].set(popt[0])
+                    self.function_params['exponential']['b'].set(popt[1])
+                    
+            else:  # poly
+                popt = np.polyfit(x_data, y_data, 2)
+                self.mean_func = np.poly1d(popt)
+                self.std_func = lambda x: np.std(y_data - self.mean_func(x_data))
+                
+                # Update manual parameters if polynomial is selected
+                if 'polynomial' in self.selected_functions:
+                    self.function_params['polynomial']['a'].set(popt[0])
+                    self.function_params['polynomial']['b'].set(popt[1])
+                    self.function_params['polynomial']['c'].set(popt[2])
+            
+            # Update graph
+            self.update_graph()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en el ajuste automático:\n{str(e)}")
+
+    def update_graph(self):
+        try:
+            if self.data_series is None:
+                return
+
+            # Clear previous plot
+            self.graph_ax.clear()
+            
+            # Plot data series as bars
+            x_data = self.data_series[:, 0]
+            y_data = self.data_series[:, 1]
+            self.graph_ax.bar(x_data, y_data, alpha=0.3, 
+                            color='gray', width=0.8, 
+                            label='Datos Experimentales', 
+                            edgecolor='black')
+            self.graph_ax.scatter(x_data, y_data, color='red', label='Datos usuario')
+
+            # Plot selected manual functions
+            if self.fit_type.get() == "manual" and self.selected_functions:
+                x = np.linspace(min(x_data), max(x_data), 100)
+                y_total = np.zeros_like(x)
+                for func_name in self.selected_functions:
+                    params = self.function_params[func_name]
+                    if func_name == 'linear':
+                        y = params['slope'].get() * x + params['intercept'].get()
+                    elif func_name == 'logarithmic':
+                        y = params['a'].get() * np.log(x + 1) + params['b'].get()
+                    elif func_name == 'exponential':
+                        y = params['a'].get() * np.exp(params['b'].get() * x)
+                    else:  # polynomial
+                        y = params['a'].get() * x**2 + params['b'].get() * x + params['c'].get()
+                    y_total += y
+
+                self.graph_ax.plot(x, y_total, color='blue', label='Función Combinada')
+
+                # Calculate and display standard deviation
+                if hasattr(self, 'std_func'):
+                    y_std = self.std_func(x)
+                    y_upper = y_total + 2 * y_std
+                    y_lower = y_total - 2 * y_std
+                    self.graph_ax.fill_between(x, y_lower, y_upper, color='skyblue', alpha=0.3, label='±2 Desv. Est.')
+
+            # Plot fitted function if available
+            elif hasattr(self, 'mean_func') and hasattr(self, 'std_func'):
+                x = np.linspace(min(x_data), max(x_data), 100)
+                y_mean = self.mean_func(x)
+                y_std = self.std_func(x)
+                y_upper = y_mean + 2 * y_std
+                y_lower = y_mean - 2 * y_std
+
+                self.graph_ax.plot(x, y_mean, color='blue', label='Media estimada')
+                self.graph_ax.fill_between(x, y_lower, y_upper, color='skyblue', alpha=0.3, label='±2 Desv. Est.')
+
+            # Configure plot
+            self.graph_ax.set_title("Crecimiento del Tráfico")
+            self.graph_ax.set_xlabel("Período")
+            self.graph_ax.set_ylabel("Crecimiento (%)")
+            self.graph_ax.grid(True, linestyle='--', alpha=0.7)
+            self.graph_ax.legend(loc='upper left')
+
+            self.graph_canvas.draw()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error actualizando gráfico:\n{str(e)}")
     def load_data_series(self):
         file_path = filedialog.askopenfilename(
             title="Seleccionar archivo de datos",
@@ -724,101 +904,6 @@ class App:
                 messagebox.showerror("Error", f"Error cargando datos:\n{str(e)}")
                 self.data_series = None
                 self.data_label.config(text="Archivo: Ninguno")
-
-    def update_parameter_ui(self):
-        # Clear existing widgets
-        for widget in self.func_params_container.winfo_children():
-            widget.destroy()
-        
-        current_row = 0
-        for func in self.selected_functions:
-            # Function header
-            ttk.Label(self.func_params_container, 
-                    text=f"{func.capitalize()} Parámetros").grid(row=current_row, column=0, columnspan=2, sticky="w")
-            current_row += 1
-            
-            # Parameters
-            params = self.function_params[func]
-            for param_name, var in params.items():
-                ttk.Label(self.func_params_container, text=param_name.capitalize()).grid(
-                    row=current_row, column=0, padx=5, pady=2, sticky="e")
-                ttk.Entry(self.func_params_container, textvariable=var).grid(
-                    row=current_row, column=1, padx=5, pady=2, sticky="w")
-                current_row += 1
-            
-            # Separator
-            ttk.Separator(self.func_params_container, orient='horizontal').grid(
-                row=current_row, column=0, columnspan=2, sticky="ew", pady=5)
-            current_row += 1
-
-    def update_graph(self):
-        try:
-            x_start = self.global_params['x_start'].get()
-            x_end = self.global_params['x_end'].get()
-            noise_level = self.global_params['noise'].get()
-            x = np.linspace(x_start, x_end, 1000)
-            y_total = np.zeros_like(x)
-
-            # Clear previous plot
-            self.graph_ax.clear()
-            
-            # Plot data series first (as bars)
-            if self.data_series is not None:
-                x_data = self.data_series[:, 0]
-                y_data = self.data_series[:, 1]
-                self.graph_ax.bar(x_data, y_data, alpha=0.3, 
-                                color='gray', width=0.8, 
-                                label='Datos Experimentales', 
-                                edgecolor='black')
-
-            # Calculate and plot combined function
-            for func in self.selected_functions:
-                params = self.function_params[func]
-                if func == 'sine':
-                    y = params['amplitude'].get() * np.sin(
-                        params['frequency'].get() * x + 
-                        params['phase'].get()
-                    )
-                elif func == 'linear':
-                    y = (params['slope'].get() * x + 
-                        params['intercept'].get())
-                elif func == 'logarithmic':
-                    shift = params['shift'].get()
-                    base = params['base'].get()
-                    # Ensure input to log is positive
-                    valid_x = x + shift
-                    valid_x[valid_x <= 0] = 1e-9  # Avoid log(0)
-                    y = (params['coefficient'].get() * np.log(valid_x)/np.log(base) + 
-                        params['constant'].get())
-                y_total += y
-
-            # Add noise and plot function line
-            if noise_level > 0:
-                y_total += np.random.normal(0, noise_level, x.shape)
-            
-            self.graph_ax.plot(x, y_total, linewidth=2, color='red', 
-                            label='Función Combinada')
-
-            # Configure plot aesthetics
-            self.graph_ax.set_title("Comparación de Función y Datos")
-            self.graph_ax.set_xlabel("Variable Independiente (X)")
-            self.graph_ax.set_ylabel("Variable Dependiente (Y)")
-            self.graph_ax.grid(True, linestyle='--', alpha=0.7)
-            self.graph_ax.legend(loc='upper right')
-            
-            # Adjust x-axis limits if data exists
-            if self.data_series is not None:
-                data_x_min = np.min(self.data_series[:, 0])
-                data_x_max = np.max(self.data_series[:, 0])
-                current_x_min, current_x_max = self.graph_ax.get_xlim()
-                new_x_min = min(current_x_min, data_x_min - 0.5)
-                new_x_max = max(current_x_max, data_x_max + 0.5)
-                self.graph_ax.set_xlim(new_x_min, new_x_max)
-
-            self.graph_canvas.draw()
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Error actualizando gráfico:\n{str(e)}")
 
 # Crear la aplicación
 if __name__ == "__main__":
