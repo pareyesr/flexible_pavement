@@ -1,5 +1,5 @@
 matplotlib==3.10.0
-numpy==2.2.1
+numpy==1.26.4
 pandas==2.2.3
 scipy==1.15.1
 openpyxl==3.1.2#necesary if want to export results to excel

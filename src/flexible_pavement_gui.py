@@ -24,6 +24,8 @@ class App:
         self.cruta = None
         self.save_button = None
         self.entrys = []
+        self.dict_params = {}
+        self.acumulated = None
         self.data_series = None
         
         self.create_widgets()
@@ -48,78 +50,76 @@ class App:
         sol_tab = ttk.Frame(notebook)
         notebook.add(sol_tab, text='Solución')
         self.create_sol_widgets(sol_tab)
-
-        # Create the tab for parameters evaluation
-        rev_param_tab = ttk.Frame(notebook)
-        notebook.add(rev_param_tab, text='Parámetros Evaluación')
-        self.create_param_rand_widgets(rev_param_tab, notebook)
-
-        # Create the tab for graph visualization
-        graph_tab = ttk.Frame(notebook)
-        notebook.add(graph_tab, text='Visualización')
-        self.create_graph_widgets(graph_tab)
+        
+        # Create the tab for design decisions
+        design_tab = ttk.Frame(notebook)
+        notebook.add(design_tab, text='Decisiones de diseño')
+        self.create_graph_widgets(design_tab)
 
         # Pack all tabs
         notebook.pack(expand=1, fill='both')
 
-    def create_param_rand_widgets(self,tab,notebook):
+    def create_traffic_params_widgets(self, tab, notebook):
+        # Create a frame for traffic parameters
+        traffic_params_frame = ttk.LabelFrame(tab, text="Parámetros de Tráfico", padding="10")
+        traffic_params_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
         # Etiquetas y cajas de entrada para recalcular capas
-        ttk.Label(tab, text="TPD:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
-        self.tpd = ttk.Entry(tab)
+        ttk.Label(traffic_params_frame, text="TPD:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        self.tpd = ttk.Entry(traffic_params_frame)
         self.tpd.insert(0, "402.39")
         self.tpd.grid(row=0, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="archivo npy:").grid(row=0, column=3, padx=10, pady=5, sticky="w")
-        self.arr_ruta = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="archivo npy:").grid(row=0, column=3, padx=10, pady=5, sticky="w")
+        self.arr_ruta = ttk.Entry(traffic_params_frame)
         self.arr_ruta.insert(0, "datos_res")
         self.arr_ruta.grid(row=0, column=4, padx=10, pady=5, sticky="w") 
-        ttk.Label(tab, text="vc:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        self.vc = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="vc:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.vc = ttk.Entry(traffic_params_frame)
         self.vc.insert(0, "0.5")
         self.vc.grid(row=1, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="cd:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.cd = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="cd:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.cd = ttk.Entry(traffic_params_frame)
         self.cd.insert(0, "1.0")
         self.cd.grid(row=2, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="size:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        self.size = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="size:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        self.size = ttk.Entry(traffic_params_frame)
         self.size.insert(0, "5000")
         self.size.grid(row=3, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="n:").grid(row=4, column=0, padx=10, pady=5, sticky="w")
-        self.n = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="n:").grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        self.n = ttk.Entry(traffic_params_frame)
         self.n.insert(0, "360")
         self.n.grid(row=4, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="rate:").grid(row=5, column=0, padx=10, pady=5, sticky="w")
-        self.rate = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="rate:").grid(row=5, column=0, padx=10, pady=5, sticky="w")
+        self.rate = ttk.Entry(traffic_params_frame)
         self.rate.insert(0, "0.05")
         self.rate.grid(row=5, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="cost_rb:").grid(row=6, column=0, padx=10, pady=5, sticky="w")
-        self.cost_rb = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="cost_rb:").grid(row=6, column=0, padx=10, pady=5, sticky="w")
+        self.cost_rb = ttk.Entry(traffic_params_frame)
         self.cost_rb.insert(0, "1000")
         self.cost_rb.grid(row=6, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="capas:").grid(row=7, column=0, padx=10, pady=5, sticky="w")
-        self.capas = ttk.Entry(tab)
-        self.capas.insert(0, "2")
-        self.capas.grid(row=7, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="step:").grid(row=8, column=0, padx=10, pady=5, sticky="w")
-        self.step = ttk.Entry(tab)
-        self.step.insert(0, "3")
-        self.step.grid(row=8, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="seedint:").grid(row=9, column=0, padx=10, pady=5, sticky="w")
-        self.seedint = ttk.Entry(tab)
+        
+        ttk.Label(traffic_params_frame, text="seedint:").grid(row=9, column=0, padx=10, pady=5, sticky="w")
+        self.seedint = ttk.Entry(traffic_params_frame)
         self.seedint.insert(0, "63442967")
         self.seedint.grid(row=9, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="Annual mean growth rate:").grid(row=10, column=0, padx=10, pady=5, sticky="w")
-        self.mu_annual = ttk.Entry(tab)
-        self.mu_annual.insert(0, "0.047")
-        self.mu_annual.grid(row=10, column=1, padx=10, pady=5, sticky="w")
-        ttk.Label(tab, text="Annual standard deviation of growth rate:").grid(row=11, column=0, padx=10, pady=5, sticky="w")
-        self.sigma_annual = ttk.Entry(tab)
-        self.sigma_annual.insert(0, "0.057")
-        self.sigma_annual.grid(row=11, column=1, padx=10, pady=5, sticky="w")
         
         # Add Load button
-        ttk.Button(tab, text="Load", command=lambda: self.create_rand_graph_widgets(notebook)).grid(row=0, column=5, columnspan=2, pady=10)
+        ttk.Button(traffic_params_frame, text="Simular Tráfico", command=lambda: self.create_rand_graph_widgets(notebook)).grid(row=0, column=5, columnspan=2, pady=10)
         
+        # Add a description label
+        description = "Estos parámetros se utilizan para simular el tráfico y evaluar el comportamiento del pavimento a lo largo del tiempo."
+        ttk.Label(traffic_params_frame, text=description, wraplength=400).grid(row=10, column=0, columnspan=6, padx=10, pady=10, sticky="w")
+
+    def create_param_rand_widgets(self, tab, notebook):
+        self.create_traffic_params_widgets(tab, notebook)
+
     def create_rand_graph_widgets(self,notebook):
         """Create random graph widgets with current parameters"""
         # Get current parameters
@@ -131,11 +131,9 @@ class App:
         rate = float(self.rate.get() or 0.05)
         cost_rb = float(self.cost_rb.get() or 1000)
         capas = int(self.capas.get() or 2)
-        step = int(self.step.get() or 3)
         seedint = int(self.seedint.get() or 63442967)
-        mu_annual = float(self.mu_annual.get() or 0.047)
-        sigma_annual = float(self.sigma_annual.get() or 0.057)
-            
+        mu_function = self.mean_func
+        sigma_function = self.std_func
         # Load materials
         script_dir = os.path.dirname(os.path.abspath(__file__))
         csv_path = os.path.join(script_dir, str(self.cruta.get()) + ".csv")
@@ -152,8 +150,18 @@ class App:
             messagebox.showerror("Error", "No valid solutions found")
             return
                 
-        # Use first solution by default
-        sect = solutions[0]
+        # Store all solutions and update the selector
+        self.all_solutions = solutions
+        self.solution_selector['values'] = list(range(len(solutions)))
+        
+        # Use selected solution or default to first
+        if hasattr(self, 'solution_index'):
+            index = min(self.solution_index.get(), len(solutions)-1)
+            self.solution_index.set(index)
+            sect = solutions[index]
+        else:
+            self.solution_index.set(0)
+            sect = solutions[0]
             
         # Calculate flexibility or load from file
         ruta_arr = os.path.join(script_dir, str(self.arr_ruta.get()) + ".npy")
@@ -163,14 +171,33 @@ class App:
                 result = np.load(ruta_arr)
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load {ruta_arr}: {str(e)}")
-        
+        self.dict_params = {
+                "TPD": tpd,
+                "vc": vc,
+                "cd": cd,
+                "size": size,
+                "n": n,
+                "rate": rate,
+                "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
+                "Reliavility": float(self.confianza_entry.get() or 0.9),
+                "Standard_Deviation": float(self.desviacion_entry.get() or 0.45),
+                "Delta_PSI": float(self.delta_psi_entry.get() or 2.0),
+                "Mr": float(self.modulo_resiliente_entry.get() or 3000),
+                "sect": sect,
+                "grade": float(self.grade.get() or 0.0),
+                "emb": float(self.emb.get() or 0.0),
+                "excv": float(self.exc.get() or 0.0),
+                "cost_rb": cost_rb,
+                "capas": capas,
+                "step": round(float(self.intervention_interval_value.get()) * (12 if self.intervention_interval_unit.get() == "Años" else 1)),
+                "seedint": seedint,
+                "mu_function": mu_function,
+                "sigma_function": sigma_function,
+                "factor": float(self.life_factor.get() or 1.0)
+            }  
         if result is None:
-            result = evaluate_flexibility(tpd, vc, cd, size, n, rate, self.calcular_sn(), 
-                                       0.9, 0.45, 2.0, 3000, DF, sect, 
-                                       float(self.grade.get() or 0.0),
-                                       float(self.emb.get() or 0.0),
-                                       float(self.exc.get() or 0.0),
-                                       cost_rb, capas, step, seedint,mu_annual,sigma_annual)
+              
+            result, self.acumulated = evaluate_flexibility(self.dict_params,DF)
             # Save results
             try:
                 np.save(ruta_arr, result)
@@ -207,7 +234,7 @@ class App:
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
         
         # Add grid for better readability
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, linestyle='--', alpha=0.3)
             
         canvas = FigureCanvasTkAgg(fig, master=rand_tab)
         canvas.draw()
@@ -284,7 +311,7 @@ class App:
             
         if len(DF) == 0:
             self.resol_result_label.config(text="No materials available for calculation")
-            return None
+            return
                 
         # Get current parameters
         n_sect = int(self.n_sect.get() or 0)
@@ -297,11 +324,11 @@ class App:
         all_solutions = solve(DF, self.calcular_sn(), grade, emb, exc)
         if not all_solutions:
             self.resol_result_label.config(text="No valid solutions found")
-            return None
+            return
                 
         if n_sect >= len(all_solutions):
             self.resol_result_label.config(text=f"Solution {n_sect} not available. Maximum is {len(all_solutions)-1}")
-            return None
+            return
                 
         sect = all_solutions[n_sect]
         resolve(DF, sect, self.calcular_sn(), n_capas, grade, emb, exc)
@@ -321,51 +348,81 @@ class App:
         for widget in tab.grid_slaves():
             widget.destroy()
             
+        # Create a frame for the solution list
+        solution_list_frame = ttk.Frame(tab)
+        solution_list_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+            
         # Calculate solutions
         combined_data = self.calcular_sol()
         
         if not combined_data:  # If no solutions available
-            ttk.Label(tab, text="No solutions available. Please add materials first.").grid(
+            ttk.Label(solution_list_frame, text="No solutions available. Please add materials first.").grid(
                 row=0, column=0, columnspan=4, padx=10, pady=20)
-            return
-            
-        # Create headers
-        headers = ["Material", "Thickness", "Cost", "SN"]
-        for i, header in enumerate(headers):
-            ttk.Label(tab, text=header, font=('Arial', 10, 'bold')).grid(row=0, column=i, padx=10, pady=5)
-            
-        # Calculate base row for each solution
-        current_row = 1
-            
-        # Display solutions
-        for i, solution in enumerate(combined_data, 1):
-            # Solution header with spacing
-            ttk.Label(tab, text=f"Solution {i}", font=('Arial', 10, 'bold')).grid(
-                row=current_row, column=0, columnspan=4, pady=(20,5))
-            current_row += 1
-            
-            # Iterate directly over the Section object
-            for layer in solution:
-                # Display layer information
-                ttk.Label(tab, text=layer.name).grid(row=current_row, column=0, padx=10, pady=2, sticky='w')
-                ttk.Label(tab, text=f"{layer.thickness:.2f}").grid(row=current_row, column=1, padx=10, pady=2)
-                ttk.Label(tab, text=f"{layer.cost:.2f}").grid(row=current_row, column=2, padx=10, pady=2)
-                ttk.Label(tab, text=f"{layer.sn:.2f}").grid(row=current_row, column=3, padx=10, pady=2)
+        else:
+            # Create headers
+            headers = ["Material", "Thickness", "Cost", "SN"]
+            for i, header in enumerate(headers):
+                ttk.Label(solution_list_frame, text=header, font=('Arial', 10, 'bold')).grid(row=0, column=i, padx=10, pady=5)
+                
+            # Calculate base row for each solution
+            current_row = 1
+                
+            # Display solutions
+            for i, solution in enumerate(combined_data, 1):
+                # Solution header with spacing
+                ttk.Label(solution_list_frame, text=f"Solution {i}", font=('Arial', 10, 'bold')).grid(
+                    row=current_row, column=0, columnspan=4, pady=(20,5))
                 current_row += 1
-            
-            # Add total cost with a separator line above
-            separator = ttk.Frame(tab, height=2, relief="groove")
-            separator.grid(row=current_row, column=0, columnspan=4, sticky='ew', pady=(5,5))
-            current_row += 1
-            
-            ttk.Label(tab, text=f"Total Cost: {solution.totalCost:.2f}", font=('Arial', 10, 'bold')).grid(
-                row=current_row, column=0, columnspan=4, pady=(0,10))
-            current_row += 1
-            
+                
+                # Iterate directly over the Section object
+                for layer in solution:
+                    # Display layer information
+                    ttk.Label(solution_list_frame, text=layer.name).grid(row=current_row, column=0, padx=10, pady=2, sticky='w')
+                    ttk.Label(solution_list_frame, text=f"{layer.thickness:.2f}").grid(row=current_row, column=1, padx=10, pady=2)
+                    ttk.Label(solution_list_frame, text=f"{layer.cost:.2f}").grid(row=current_row, column=2, padx=10, pady=2)
+                    ttk.Label(solution_list_frame, text=f"{layer.sn:.2f}").grid(row=current_row, column=3, padx=10, pady=2)
+                    current_row += 1
+                
+                # Add total cost with a separator line above
+                separator = ttk.Frame(solution_list_frame, height=2, relief="groove")
+                separator.grid(row=current_row, column=0, columnspan=4, sticky='ew', pady=(5,5))
+                current_row += 1
+                
+                ttk.Label(solution_list_frame, text=f"Total Cost: {solution.totalCost:.2f}", font=('Arial', 10, 'bold')).grid(
+                    row=current_row, column=0, columnspan=4, pady=(0,10))
+                current_row += 1
+                
         # Botón para calcular la solución de capas - place at the top
-        ttk.Button(tab, text="Calcular nuevas capas", command=self.calcular_sol).grid(
+        ttk.Button(solution_list_frame, text="Calcular nuevas capas", command=self.calcular_sol).grid(
             row=0, column=4, padx=20, pady=5, sticky='ne')
-            
+
+        # Create pavement design frame
+        pavement_frame = ttk.LabelFrame(tab, text="Diseño de Pavimento", padding="10")
+        pavement_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        
+        # Add solution selector
+        solution_frame = ttk.Frame(pavement_frame)
+        solution_frame.pack(fill='x', pady=5)
+        
+        ttk.Label(solution_frame, text="Solución:").pack(side='left', padx=5)
+        self.solution_index = tk.IntVar(value=0)
+        self.solution_selector = ttk.Combobox(solution_frame, textvariable=self.solution_index, state='readonly', width=5)
+        self.solution_selector.pack(side='left', padx=5)
+        self.solution_selector.bind('<<ComboboxSelected>>', self.on_solution_change)
+        
+        ttk.Button(solution_frame, text="Actualizar", command=self.update_solutions_list).pack(side='right', padx=5)
+        
+        # Create figure and canvas for pavement design
+        self.pavement_fig = Figure(figsize=(3, 4), dpi=100)
+        self.pavement_ax = self.pavement_fig.add_subplot(111)
+        self.pavement_canvas = FigureCanvasTkAgg(self.pavement_fig, master=pavement_frame)
+        self.pavement_canvas.get_tk_widget().pack(fill='both', expand=True)
+        
+        # Configure grid weights to make both frames expand properly
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=1)
+        
     def calcular_sol(self):
         """Calcula la solución y devuelve los datos para mostrar en la tabla"""
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -615,14 +672,32 @@ class App:
         # Show the result in the interface
         self.sn_result_label.config(text=f"SN = {sn:.2f}", foreground="dark green")
         print(f"El valor calculado de SN es: {sn:.2f}")
+        self.dict_params['sn_design'] = sn
         return sn
 
     def create_graph_widgets(self, parent):
+        # Create a notebook widget for the design decisions tab
+        design_notebook = ttk.Notebook(parent)
+        design_notebook.pack(fill='both', expand=True)
+        
+        # Create the main growth parameters tab
+        growth_tab = ttk.Frame(design_notebook)
+        design_notebook.add(growth_tab, text='Parámetros de Crecimiento')
+        
+        # Create the traffic parameters tab
+        traffic_tab = ttk.Frame(design_notebook)
+        design_notebook.add(traffic_tab, text='Parámetros de Tráfico')
+        
+        # Add traffic parameters to the traffic tab
+        self.create_traffic_params_widgets(traffic_tab, design_notebook)
+        
         # Initialize global parameters
         self.global_params = {
             'x_start': tk.DoubleVar(value=0.0),
             'x_end': tk.DoubleVar(value=12.0),
-            'noise': tk.DoubleVar(value=0.0)
+            'noise': tk.DoubleVar(value=0.0),
+            'generate_std': tk.BooleanVar(value=False),
+            'std_manual': tk.StringVar(value="")
         }
 
         # Initialize function parameters
@@ -646,7 +721,7 @@ class App:
             }
         }
 
-        param_frame = ttk.LabelFrame(parent, text="Parámetros", padding="10")
+        param_frame = ttk.LabelFrame(growth_tab, text="Parámetros de crecimiento de tráfico", padding="10")
         param_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
         # Fitting type selection
@@ -670,12 +745,21 @@ class App:
         self.fit_type.trace('w', self.update_parameter_ui)
         
         # Cargar datos button
-        ttk.Button(param_frame, text="Cargar Datos", command=self.load_data_series).grid(row=2, column=0, padx=5, pady=5)
+        ttk.Button(param_frame, text="Cargar datos de crecimiento", command=self.load_data_series).grid(row=2, column=0, padx=5, pady=5)
         self.data_label = ttk.Label(param_frame, text="Archivo: Ninguno")
         self.data_label.grid(row=2, column=1, padx=5, pady=5)
+        
+        # Add button to plot simulated transit with tooltip
+        transit_btn = ttk.Button(param_frame, text="Simular y Graficar Tránsito", command=self.plot_transit_simulation)
+        transit_btn.grid(row=2, column=2, padx=5, pady=5)
+        
+        # Add a label to explain the simulation plots
+        transit_info = ttk.Label(param_frame, text="Genera gráficos detallados del tránsito acumulado y mensual", 
+                                 font=("Arial", 8), foreground="gray")
+        transit_info.grid(row=3, column=0, columnspan=3, padx=5, pady=2, sticky="w")
 
         # Create plot frame
-        graph_frame = ttk.LabelFrame(parent, text="Gráfico", padding="10")
+        graph_frame = ttk.LabelFrame(growth_tab, text="Gráfico", padding="10")
         graph_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # Create figure and canvas
@@ -688,11 +772,24 @@ class App:
         self.selected_functions = []
         self.update_parameter_ui()
 
-    def on_function_select(self, event):
-        selected_indices = self.function_listbox.curselection()
-        self.selected_functions = [self.function_listbox.get(i) for i in selected_indices]
-        self.update_parameter_ui()
-        self.update_graph()
+        # Intervalos de Intervención Frame
+        interval_frame = ttk.LabelFrame(growth_tab, text="Intervalos de Intervención", padding="10")
+        interval_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        
+        # Input parameters
+        ttk.Label(interval_frame, text="Intervalo de Intervención:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.intervention_interval_value = tk.DoubleVar(value=1.0)
+        self.intervention_interval_unit = tk.StringVar(value="Años")
+        ttk.Entry(interval_frame, textvariable=self.intervention_interval_value, width=10).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Combobox(interval_frame, textvariable=self.intervention_interval_unit, values=["Años", "Meses"], state="readonly", width=10).grid(row=0, column=2, padx=5, pady=5)
+        
+        ttk.Label(interval_frame, text="Factor de Vida Útil (0-1):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.life_factor = tk.DoubleVar(value=0.85)
+        ttk.Entry(interval_frame, textvariable=self.life_factor, width=10).grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(interval_frame, text="Capas de pavimento \na intervenir en el periodo:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.capas = tk.IntVar(value=2)
+        ttk.Entry(interval_frame, textvariable=self.capas, width=10).grid(row=2, column=1, padx=5, pady=5)
 
     def update_parameter_ui(self, *args):
         # Clear existing widgets
@@ -740,6 +837,14 @@ class App:
                 ttk.Label(self.manual_params_container, text="Nivel de Ruido").grid(row=row, column=0, padx=5, pady=5)
                 ttk.Entry(self.manual_params_container, textvariable=self.global_params['noise']).grid(row=row, column=1, padx=5, pady=5)
                 row += 1
+
+                # Std deviation controls
+                ttk.Checkbutton(self.manual_params_container, text="Generar desviación con datos", variable=self.global_params['generate_std'], command=self.update_parameter_ui).grid(row=row, column=0, columnspan=2, padx=5, pady=5)
+                row += 1
+                if not self.global_params['generate_std'].get():
+                    ttk.Label(self.manual_params_container, text="Función de Desviación").grid(row=row, column=0, padx=5, pady=5)
+                    ttk.Entry(self.manual_params_container, textvariable=self.global_params['std_manual']).grid(row=row, column=1, padx=5, pady=5)
+                    row += 1
 
                 # Add Update Graph button
                 ttk.Button(self.manual_params_container, text="Actualizar Gráfico", command=self.update_graph).grid(row=row, column=0, columnspan=2, pady=5)
@@ -817,6 +922,8 @@ class App:
             
         except Exception as e:
             messagebox.showerror("Error", f"Error en el ajuste automático:\n{str(e)}")
+        
+        self.update_pavement_design()
 
     def update_graph(self):
         try:
@@ -882,6 +989,88 @@ class App:
 
         except Exception as e:
             messagebox.showerror("Error", f"Error actualizando gráfico:\n{str(e)}")
+        
+        self.update_pavement_design()
+
+    def update_pavement_design(self):
+        """Update the pavement design visualization"""
+        # Check if we have a solution
+        sect = None
+        
+        if hasattr(self, 'dict_params') and 'sect' in self.dict_params:
+            sect = self.dict_params['sect']
+        elif hasattr(self, 'all_solutions') and self.all_solutions:
+            # Use the currently selected solution
+            index = self.solution_index.get()
+            if 0 <= index < len(self.all_solutions):
+                sect = self.all_solutions[index]
+        else:
+            # Try to get a solution
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                csv_path = os.path.join(script_dir, str(self.cruta.get()) + ".csv")
+                DF = cargar_materiales(csv_path)
+                
+                if len(DF) == 0:
+                    return
+                    
+                solutions = solve(DF, self.calcular_sn(), float(self.grade.get() or 0.0), 
+                                float(self.emb.get() or 0.0), float(self.exc.get() or 0.0))
+                if not solutions:
+                    return
+                
+                # Store all solutions and update the selector
+                self.all_solutions = solutions
+                self.solution_selector['values'] = list(range(len(solutions)))
+                self.solution_index.set(0)
+                
+                sect = solutions[0]
+            except Exception as e:
+                print(f"Error getting pavement design: {str(e)}")
+                return
+        
+        if not sect:
+            return
+            
+        # Clear the plot
+        self.pavement_ax.clear()
+        
+        # Create a stacked bar chart for the pavement layers
+        bottom = 0
+        y_positions = []
+        layer_names = []
+        colors = plt.cm.tab10.colors  # Use a colormap for different layers
+        
+        # Process layers from bottom to top (reverse order for visualization)
+        for i, layer in enumerate(reversed(sect)):
+            thickness = layer.thickness
+            y_positions.append(bottom + thickness/2)  # For label positioning
+            self.pavement_ax.bar(0, thickness, bottom=bottom, width=0.6, 
+                              color=colors[i % len(colors)], 
+                              edgecolor='black', linewidth=1)
+            bottom += thickness
+            layer_names.append(f"{layer.name}\n{thickness:.1f} {layer.unit}")
+        
+        # Add layer labels
+        for i, (y, name) in enumerate(zip(y_positions, layer_names)):
+            self.pavement_ax.text(0, y, name, ha='center', va='center', 
+                               fontsize=8, fontweight='bold')
+        
+        # Set axis properties
+        self.pavement_ax.set_xlim(-0.5, 0.5)
+        self.pavement_ax.set_xticks([])
+        self.pavement_ax.set_ylabel('Espesor (pulgadas)')
+        self.pavement_ax.set_title('Diseño de Pavimento')
+        
+        # Add total thickness and SN
+        total_thickness = sum(layer.thickness for layer in sect)
+        total_sn = sum(layer.thickness * layer.sn for layer in sect)
+        self.pavement_ax.text(0, -0.1, f"Espesor total: {total_thickness:.1f}\nSN total: {total_sn:.2f}", 
+                           ha='center', transform=self.pavement_ax.transAxes)
+        
+        # Redraw the canvas
+        self.pavement_canvas.draw()
+
     def load_data_series(self):
         file_path = filedialog.askopenfilename(
             title="Seleccionar archivo de datos",
@@ -905,6 +1094,129 @@ class App:
                 self.data_series = None
                 self.data_label.config(text="Archivo: Ninguno")
 
+    def on_solution_change(self, event=None):
+        """Handle solution selection change"""
+        if hasattr(self, 'all_solutions') and self.all_solutions:
+            index = self.solution_index.get()
+            if 0 <= index < len(self.all_solutions):
+                # Update the selected solution
+                if hasattr(self, 'dict_params'):
+                    self.dict_params['sect'] = self.all_solutions[index]
+                # Update the visualization
+                self.update_pavement_design()
+    
+    def update_solutions_list(self):
+        """Update the solution selector with available solutions"""
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            csv_path = os.path.join(script_dir, str(self.cruta.get()) + ".csv")
+            DF = cargar_materiales(csv_path)
+            
+            if len(DF) == 0:
+                messagebox.showerror("Error", "No materials available for calculation")
+                return
+                
+            solutions = solve(DF, self.calcular_sn(), float(self.grade.get() or 0.0), 
+                            float(self.emb.get() or 0.0), float(self.exc.get() or 0.0))
+            
+            if not solutions:
+                messagebox.showerror("Error", "No valid solutions found")
+                return
+            
+            # Store solutions and update selector
+            self.all_solutions = solutions
+            self.solution_selector['values'] = list(range(len(solutions)))
+            
+            # Set current selection to first solution
+            self.solution_index.set(0)
+            
+            # Update dict_params if it exists
+            if hasattr(self, 'dict_params') and 'sect' in self.dict_params:
+                self.dict_params['sect'] = solutions[0]
+            
+            # Update visualization
+            self.update_pavement_design()
+            
+            messagebox.showinfo("Success", f"Found {len(solutions)} valid solutions")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Error updating solutions list: {str(e)}")
+
+    def on_function_select(self, event):
+        selected_indices = self.function_listbox.curselection()
+        self.selected_functions = [self.function_listbox.get(i) for i in selected_indices]
+        self.update_parameter_ui()
+        self.update_graph()
+        
+    def calculate_rb_cost(self):
+        """
+        Calculate the rubble (rb) cost
+        """
+        # This is a placeholder - implement the actual calculation based on your requirements
+        return 0.0
+
+    def plot_transit_simulation(self):
+        """
+        Plot the simulated transit using the parameters from the GUI
+        """
+        try:
+            # Show a message indicating that plots are being generated
+            messagebox.showinfo("Generando Gráficos", 
+                               "Se generarán dos gráficos:"
+                               "\n1. Función de crecimiento con bandas de desviación estándar"
+                               "\n2. Simulación de tráfico mensual con crecimiento compuesto")
+            
+            # Define default growth functions if not already defined
+            if not hasattr(self, 'mean_func'):
+                # Default mean function - constant growth rate
+                self.mean_func = lambda x: 0.047
+            
+            if not hasattr(self, 'std_func'):
+                # Default standard deviation function
+                self.std_func = lambda x: 0.057
+            
+            # Check if we have the necessary parameters
+            if not hasattr(self, 'dict_params'):
+                # Create the parameters dictionary if it doesn't exist
+                tpd = float(self.tpd.get() or 402.39)
+                vc = float(self.vc.get() or 0.5)
+                cd = float(self.cd.get() or 1.0)
+                size = int(self.size.get() or 5000)
+                n = int(self.n.get() or 360)
+                seedint = int(self.seedint.get() or 63442967)
+                
+                self.dict_params = {
+                    "TPD": tpd,
+                    "vc": vc,
+                    "cd": cd,
+                    "size": size,
+                    "n": n,
+                    "seedint": seedint,
+                    "mu_function": self.mean_func,
+                    "sigma_function": self.std_func
+                }
+            else:
+                # Update the dictionary with current values
+                self.dict_params["TPD"] = float(self.tpd.get() or 402.39)
+                self.dict_params["vc"] = float(self.vc.get() or 0.5)
+                self.dict_params["cd"] = float(self.cd.get() or 1.0)
+                self.dict_params["size"] = int(self.size.get() or 5000)
+                self.dict_params["n"] = int(self.n.get() or 360)
+                self.dict_params["seedint"] = int(self.seedint.get() or 63442967)
+                self.dict_params["mu_function"] = self.mean_func
+                self.dict_params["sigma_function"] = self.std_func
+        
+            # First plot: Growth function with standard deviation bands
+            plot_simulated_function(self.dict_params)
+            
+            # Second plot: Monthly traffic simulation with compounded growth
+            plot_simulated_transit(self.dict_params)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error plotting simulated transit: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
 # Crear la aplicación
 if __name__ == "__main__":
     #Es necesario si quieres correr la app desde este modulo
@@ -913,6 +1225,8 @@ if __name__ == "__main__":
     from Logica import solve
     from Logica import resolve
     from Logica import evaluate_flexibility
+    from results import plot_simulated_function
+    from results import plot_simulated_transit
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "default.csv")
     DF:pd.DataFrame =cargar_materiales(csv_path)
@@ -925,6 +1239,8 @@ else:
     from .Logica import solve
     from .Logica import resolve
     from .Logica import evaluate_flexibility
+    from .results import plot_simulated_function
+    from .results import plot_simulated_transit
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "default.csv")
     DF:pd.DataFrame =cargar_materiales(csv_path)
