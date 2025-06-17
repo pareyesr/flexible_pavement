@@ -13,10 +13,7 @@ def calculate_sn_projected(acumulated:np.array,params:dict):
     """
     sn_projected = np.zeros(len(acumulated))
     for i in range(len(acumulated)):
-        try:
-            sn_projected[i] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[i])
-        except:
-            sn_projected[i] = sn_projected[i-1]
+        sn_projected[i] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[i])
     return sn_projected
 
 def plot_simulated_function(params:dict):
@@ -181,3 +178,84 @@ def plot_simulated_transit(params:dict):
     
     plt.tight_layout()
     plt.show()
+
+def plot_traditional_design(params:dict, DF):
+    """
+    Plot the results of a traditional pavement design, showing traffic progression and SN capacity over time.
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing design parameters including:
+        - TPD: Traffic per day
+        - vc: Directional distribution (usually 0.5)
+        - cd: Design lane factor (usually 1.0)
+        - n: Design period in months
+        - Reliavility: Reliability level
+        - Standard_Deviation: Standard deviation
+        - Delta_PSI: Allowable serviceability loss
+        - Mr: Resilient modulus
+        - grade: Grade adjustment
+        - emb: Embankment cost
+        - excv: Excavation cost
+        - mu_function: Traffic growth function
+    DF : pd.DataFrame
+        DataFrame containing material properties
+    
+    Returns:
+    --------
+    tuple
+        (figure, axes) containing the plot
+    """
+    # Get design results
+    dis_sect, sn_design, m = traditional_design(params, DF)
+    
+    # Calculate monthly traffic using the growth function
+    monthly_traffic = np.zeros(params['n'])
+    for i in range(params['n']):
+        monthly_traffic[i] = params['mu_function'](i) * params['TPD'] * params['vc'] * params['cd']
+    
+    # Calculate accumulated traffic
+    acumulated_traffic = np.cumsum(monthly_traffic)
+    
+    # Print design information
+    print(dis_sect.info())
+    print(f"Design SN: {sn_design:.2f}")
+    
+    # Calculate projected SN over time
+    sn_projected = calculate_sn_projected(acumulated_traffic, params)
+    
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    
+    # Plot 1: Monthly Traffic progression
+    months = np.arange(len(monthly_traffic))
+    ax1.plot(months, monthly_traffic, 'b-', label='Monthly Traffic')
+    ax1.set_xlabel('Months')
+    ax1.set_ylabel('Monthly Traffic (ESAL)')
+    ax1.set_title('Monthly Traffic Progression Over Time')
+    ax1.grid(True)
+    ax1.legend()
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+    
+    # Plot 2: SN capacity vs projected SN
+    ax2.plot(months, [sn_design] * len(months), 'r--', label='Design SN')
+    ax2.plot(months, sn_projected, 'g-', label='Projected SN')
+    ax2.set_xlabel('Months')
+    ax2.set_ylabel('Structural Number (SN)')
+    ax2.set_title('SN Capacity vs Projected SN Over Time')
+    ax2.grid(True)
+    ax2.legend()
+    
+    # Add a shaded area where projected SN exceeds design SN
+    if np.any(sn_projected > sn_design):
+        exceed_mask = sn_projected > sn_design
+        ax2.fill_between(months, sn_design, sn_projected, 
+                        where=exceed_mask, color='red', alpha=0.3,
+                        label='SN Exceedance')
+        ax2.legend()
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    return fig, (ax1, ax2)

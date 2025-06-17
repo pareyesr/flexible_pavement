@@ -11,6 +11,23 @@ from tkinter import messagebox
 import matplotlib.pyplot as plt
 from tkinter import filedialog
 from scipy.optimize import curve_fit
+
+def show_copyable_message(title, message):
+    win = tk.Toplevel()
+    win.title(title)
+    win.geometry("600x200")
+    win.resizable(True, True)
+    label = tk.Label(win, text=title, font=("Arial", 12, "bold"))
+    label.pack(pady=(10, 0))
+    text = tk.Text(win, wrap="word", height=6)
+    text.insert("1.0", message)
+    text.config(state="normal")  # Allow selection and copying
+    text.pack(expand=True, fill="both", padx=10, pady=10)
+    text.focus_set()
+    # Add a button to close the window
+    btn = tk.Button(win, text="Close", command=win.destroy)
+    btn.pack(pady=(0, 10))
+
 class App:
     def __init__(self, master):
         self.master = master
@@ -28,7 +45,27 @@ class App:
         self.acumulated = None
         self.data_series = None
         
+        # Bind the close event
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
         self.create_widgets()
+
+    def on_closing(self):
+        """Handle cleanup when the application is closing"""
+        try:
+            # Close all matplotlib figures
+            plt.close('all')
+            
+            # Destroy the root window
+            self.master.destroy()
+            
+            # Force exit if there are any remaining processes
+            import sys
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error during cleanup: {str(e)}")
+            import sys
+            sys.exit(1)
 
     def create_widgets(self):
         # Create a notebook widget
@@ -55,6 +92,11 @@ class App:
         design_tab = ttk.Frame(notebook)
         notebook.add(design_tab, text='Decisiones de diseño')
         self.create_graph_widgets(design_tab)
+
+        # Create the tab for traditional design visualization
+        trad_design_tab = ttk.Frame(notebook)
+        notebook.add(trad_design_tab, text='Diseño Tradicional')
+        self.create_trad_design_widgets(trad_design_tab)
 
         # Pack all tabs
         notebook.pack(expand=1, fill='both')
@@ -164,77 +206,119 @@ class App:
             sect = solutions[0]
             
         # Calculate flexibility or load from file
-        ruta_arr = os.path.join(script_dir, str(self.arr_ruta.get()) + ".npy")
+        ruta_arr = os.path.join(script_dir, str(self.arr_ruta.get()) + ".csv")
         result = None
+        # Check if results file exists
         if os.path.exists(ruta_arr):
             try:
-                result = np.load(ruta_arr)
+                # Try to read existing results
+                results_df = pd.read_csv(ruta_arr)
+                # Recreate sections from saved data
+                result = pd.DataFrame(index=range(results_df['simulation'].max() + 1), 
+                                    columns=range(results_df['period'].max() + 1))
+                
+                for idx, row in results_df.iterrows():
+                    sim = row['simulation']
+                    period = row['period']
+                    total_sn = row['total_sn']
+                    total_cost = row['total_cost']
+                    materials = row['layer_materials']
+                    thicknesses = row['layer_thicknesses']
+                    sns = row['layer_sns']
+                    # Create section with saved parameters
+                    section = solve(DF, total_sn, 
+                                  self.dict_params['grade'],
+                                  self.dict_params['emb'],
+                                  self.dict_params['excv'])[0]
+                    result.iloc[sim,period] = section
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to load {ruta_arr}: {str(e)}")
-        self.dict_params = {
-                "TPD": tpd,
-                "vc": vc,
-                "cd": cd,
-                "size": size,
-                "n": n,
-                "rate": rate,
-                "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
-                "Reliavility": float(self.confianza_entry.get() or 0.9),
-                "Standard_Deviation": float(self.desviacion_entry.get() or 0.45),
-                "Delta_PSI": float(self.delta_psi_entry.get() or 2.0),
-                "Mr": float(self.modulo_resiliente_entry.get() or 3000),
-                "sect": sect,
-                "grade": float(self.grade.get() or 0.0),
-                "emb": float(self.emb.get() or 0.0),
-                "excv": float(self.exc.get() or 0.0),
-                "cost_rb": cost_rb,
-                "capas": capas,
-                "step": round(float(self.intervention_interval_value.get()) * (12 if self.intervention_interval_unit.get() == "Años" else 1)),
-                "seedint": seedint,
-                "mu_function": mu_function,
-                "sigma_function": sigma_function,
-                "factor": float(self.life_factor.get() or 1.0)
-            }  
-        if result is None:
-              
-            result, self.acumulated = evaluate_flexibility(self.dict_params,DF)
-            # Save results
-            try:
-                np.save(ruta_arr, result)
-            except Exception as e:
-                messagebox.showwarning("Warning", f"Failed to save results to {ruta_arr}: {str(e)}")
-                                       
+                show_copyable_message("Warning", f"Failed to read results from {ruta_arr}:\n{str(e)}")
+                result = None
+        else:
+            # If no results exist or failed to read, run simulation
+            if result is None:
+                # Update parameters dictionary
+                self.dict_params = {
+                    "TPD": tpd,
+                    "vc": vc,
+                    "cd": cd,
+                    "size": size,
+                    "n": n,
+                    "rate": rate,
+                    "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
+                    "Reliavility": float(self.confianza_entry.get() or 0.9),
+                    "Standard_Deviation": float(self.desviacion_entry.get() or 0.45),
+                    "Delta_PSI": float(self.delta_psi_entry.get() or 2.0),
+                    "Mr": float(self.modulo_resiliente_entry.get() or 3000),
+                    "sect": sect,
+                    "grade": float(self.grade.get() or 0.0),
+                    "emb": float(self.emb.get() or 0.0),
+                    "excv": float(self.exc.get() or 0.0),
+                    "cost_rb": cost_rb,
+                    "capas": capas,
+                    "step": round(float(self.intervention_interval_value.get()) * (12 if self.intervention_interval_unit.get() == "Años" else 1)),
+                    "seedint": seedint,
+                    "mu_function": mu_function,
+                    "sigma_function": sigma_function,
+                    "factor": float(self.life_factor.get() or 1.0)
+                }
+                
+                result, self.acumulated = evaluate_flexibility(self.dict_params,DF)
+                # Save results
+                try:
+                    # Save the full results DataFrame directly
+                    result.to_csv(ruta_arr, index=False)
+                    pd.DataFrame(self.acumulated).to_csv(ruta_arr + "_acumulated.csv", index=False)
+                except Exception as e:
+                    show_copyable_message('Warning', f'Failed to save results to {ruta_arr}: {str(e)}')
+            else:
+                # Read the saved results
+                try:
+                    results_df = pd.read_csv(ruta_arr)
+                    # Recreate sections from saved data
+                    result = pd.DataFrame(index=range(results_df['simulation'].max() + 1), 
+                                        columns=range(results_df['period'].max() + 1))
+                except Exception as e:
+                    show_copyable_message("Warning", f"Failed to read results from {ruta_arr}:\n{str(e)}")
+                    result = None
+        
         # Create new tab for results
         rand_tab = ttk.Frame(notebook)
         notebook.add(rand_tab, text='Random Results')
             
-        # Plot results
-        fig = Figure(figsize=(10, 6))
-        ax = fig.add_subplot(111)
-            
-        # Create histogram with labels
-        counts, bins, patches = ax.hist(result, bins=30, density=True, alpha=0.75)
-        total=sum(counts)
-        # Add value labels on top of each bar
-        for i in range(len(patches)):
-            # Get x coordinate of the bar center
-            x = (bins[i] + bins[i+1])/2
-            # Get height of the bar
-            height = counts[i]
-            # Add text label
-            ax.text(x, height, f'{height/total:.2%}', 
-                   ha='center', va='bottom', rotation=0,
-                   fontsize=8)
-            
-        ax.set_title('NPV Distribution')
-        ax.set_xlabel('Net Present Value ($)')
-        ax.set_ylabel('Relative Frequency')
-            
-        # Format x-axis with thousand separator
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+        # Create figure with two subplots
+        fig = Figure(figsize=(12, 8))
+        ax1 = fig.add_subplot(211)  # Top subplot for SN vs Time
+        ax2 = fig.add_subplot(212)  # Bottom subplot for Accumulated Traffic
         
-        # Add grid for better readability
-        ax.grid(True, linestyle='--', alpha=0.3)
+        # Plot SN vs Time for each simulation
+        for sim in range(min(10, result['simulation'].max() + 1)):
+            # Get all periods for this simulation
+            sim_data = result[result['simulation'] == sim]
+            periods = sim_data['period'].values
+            sn_values = sim_data['total_sn'].values
+            
+            ax1.plot(periods, sn_values, alpha=0.5, label=f'Sim {sim+1}')
+        
+        ax1.set_title('Structural Number (SN) Over Time')
+        ax1.set_xlabel('Time Period')
+        ax1.set_ylabel('SN')
+        ax1.grid(True, linestyle='--', alpha=0.3)
+        ax1.legend()
+        
+        # Plot Accumulated Traffic
+        for i in range(min(10, len(self.acumulated))):  # Plot first 10 simulations
+            ax2.plot(range(len(self.acumulated[i])), self.acumulated[i], 
+                    alpha=0.5, label=f'Sim {i+1}')
+        
+        ax2.set_title('Accumulated Traffic Over Time')
+        ax2.set_xlabel('Time Period')
+        ax2.set_ylabel('Accumulated Traffic')
+        ax2.grid(True, linestyle='--', alpha=0.3)
+        ax2.legend()
+        
+        # Adjust layout
+        fig.tight_layout()
             
         canvas = FigureCanvasTkAgg(fig, master=rand_tab)
         canvas.draw()
@@ -250,23 +334,19 @@ class App:
         # Add export to Excel button
         def export_to_excel():
             try:
-                # Create DataFrame with results
-                df = pd.DataFrame(result, columns=['NPV'])
-                
-                # Ask user for save location
-                from tkinter import filedialog
+                # Save the full results DataFrame directly
                 file_path = filedialog.asksaveasfilename(
                     defaultextension='.xlsx',
                     filetypes=[('Excel files', '*.xlsx')],
                     title='Save Results as Excel File'
                 )
-                
                 if file_path:
-                    # Save to Excel
-                    df.to_excel(file_path, index=False, sheet_name='NPV Distribution')
+                    with pd.ExcelWriter(file_path) as writer:
+                        result.to_excel(writer, sheet_name='Section Results', index=False)
+                        pd.DataFrame(self.acumulated).to_excel(writer, sheet_name='Accumulated Traffic', index=False)
                     messagebox.showinfo('Success', 'Results exported successfully!')
             except Exception as e:
-                messagebox.showerror('Error', f'Failed to export results: {str(e)}')
+                show_copyable_message('Error', f'Failed to export results: {str(e)}')
         
         export_btn = ttk.Button(rand_tab, text='Export to Excel', command=export_to_excel)
         export_btn.pack(side=tk.BOTTOM, pady=5)
@@ -778,7 +858,7 @@ class App:
         
         # Input parameters
         ttk.Label(interval_frame, text="Intervalo de Intervención:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.intervention_interval_value = tk.DoubleVar(value=1.0)
+        self.intervention_interval_value = tk.DoubleVar(value=10)
         self.intervention_interval_unit = tk.StringVar(value="Años")
         ttk.Entry(interval_frame, textvariable=self.intervention_interval_value, width=10).grid(row=0, column=1, padx=5, pady=5)
         ttk.Combobox(interval_frame, textvariable=self.intervention_interval_unit, values=["Años", "Meses"], state="readonly", width=10).grid(row=0, column=2, padx=5, pady=5)
@@ -1217,6 +1297,98 @@ class App:
             import traceback
             traceback.print_exc()
 
+    def create_trad_design_widgets(self, tab):
+        """
+        Create widgets for the traditional design visualization tab
+        """
+        # Create a frame for parameters
+        param_frame = ttk.LabelFrame(tab, text="Parámetros de Diseño")
+        param_frame.pack(fill='x', padx=5, pady=5)
+
+        # Add a description label
+        description = "Esta visualización muestra el progreso del tráfico y cómo el SN proyectado se compara con el SN de diseño a lo largo del tiempo."
+        ttk.Label(param_frame, text=description, wraplength=400).grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+
+        # Create a frame for the plot
+        plot_frame = ttk.LabelFrame(tab, text="Visualización")
+        plot_frame.pack(fill='both', expand=True, padx=5, pady=5)
+
+        # Create matplotlib figure
+        self.trad_fig = Figure(figsize=(8, 6))
+        self.trad_canvas = FigureCanvasTkAgg(self.trad_fig, master=plot_frame)
+        self.trad_canvas.get_tk_widget().pack(fill='both', expand=True)
+
+        # Add toolbar
+        toolbar_frame = ttk.Frame(plot_frame)
+        toolbar_frame.pack(fill='x')
+        toolbar = NavigationToolbar2Tk(self.trad_canvas, toolbar_frame)
+        toolbar.update()
+
+        # Add plot button
+        ttk.Button(param_frame, text="Generar Gráfico", 
+                   command=self.plot_traditional_design).grid(row=1, column=0, 
+                                                            columnspan=2, pady=10)
+
+    def plot_traditional_design(self):
+        """
+        Generate and display the traditional design plot using parameters from other tabs
+        """
+        try:
+            # Get parameters from existing entries in other tabs
+            params = {
+                'TPD': float(self.tpd.get() or 402.39),
+                'vc': float(self.vc.get() or 0.5),
+                'cd': float(self.cd.get() or 1.0),
+                'n': int(self.n.get() or 360),
+                'Reliavility': float(self.confianza_entry.get() or 0.9),
+                'Standard_Deviation': float(self.desviacion_entry.get() or 0.45),
+                'Delta_PSI': float(self.delta_psi_entry.get() or 2.0),
+                'Mr': float(self.modulo_resiliente_entry.get() or 3000),
+                'grade': float(self.grade.get() or 0.0),
+                'emb': float(self.emb.get() or 0.0),
+                'excv': float(self.exc.get() or 0.0),
+                'mu_function': self.mean_func if hasattr(self, 'mean_func') else lambda x: 0.047
+            }
+
+            # Clear previous plot
+            self.trad_fig.clear()
+
+            # Generate new plot
+            fig, (ax1, ax2) = plot_traditional_design(params, DF)
+            
+            # Copy the plots to our figure
+            for i, ax in enumerate([ax1, ax2]):
+                self.trad_fig.add_subplot(2, 1, i+1)
+                for line in ax.get_lines():
+                    self.trad_fig.axes[i].plot(line.get_xdata(), line.get_data()[1], 
+                                             color=line.get_color(), 
+                                             linestyle=line.get_linestyle(),
+                                             label=line.get_label())
+                self.trad_fig.axes[i].set_xlabel(ax.get_xlabel())
+                self.trad_fig.axes[i].set_ylabel(ax.get_ylabel())
+                self.trad_fig.axes[i].set_title(ax.get_title())
+                self.trad_fig.axes[i].grid(True)
+                self.trad_fig.axes[i].legend()
+
+            # Add shaded area for SN exceedance if it exists
+            if hasattr(ax2, 'collections'):
+                for collection in ax2.collections:
+                    if collection.get_label() == 'SN Exceedance':
+                        self.trad_fig.axes[1].fill_between(collection.get_paths()[0].vertices[:, 0],
+                                                         collection.get_paths()[0].vertices[:, 1],
+                                                         color='red', alpha=0.3,
+                                                         label='SN Exceedance')
+                        self.trad_fig.axes[1].legend()
+
+            self.trad_fig.tight_layout()
+            self.trad_canvas.draw()
+            
+            # Close the temporary figure
+            plt.close(fig)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al generar el gráfico: {str(e)}")
+
 # Crear la aplicación
 if __name__ == "__main__":
     #Es necesario si quieres correr la app desde este modulo
@@ -1227,6 +1399,7 @@ if __name__ == "__main__":
     from Logica import evaluate_flexibility
     from results import plot_simulated_function
     from results import plot_simulated_transit
+    from results import plot_traditional_design
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "default.csv")
     DF:pd.DataFrame =cargar_materiales(csv_path)
@@ -1241,6 +1414,7 @@ else:
     from .Logica import evaluate_flexibility
     from .results import plot_simulated_function
     from .results import plot_simulated_transit
+    from .results import plot_traditional_design
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "default.csv")
     DF:pd.DataFrame =cargar_materiales(csv_path)

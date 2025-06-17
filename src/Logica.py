@@ -14,13 +14,17 @@ from scipy.stats import norm
 def pred_W18(tpd:int,vc:float,cd:float,i:float,n:int):
     """
     TPD:int = Trafico promedio diario\n
-    vc:float =Distribución por sentido (usalmente 0.5)\n
-    cd:float =Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)\n
-    i:float =indice de crecimiento \n
+    vc:float =Vehiculos comerciales(B+C) \n
+    cd:float = %trafico carril de diseño \n
+    i:float =indice de crecimiento anual \n
     n:int =años de diseño\n
-    return -> 365*TPD*VC*CD*(1+i)^n/ln(1+i)\n
+    return -> 365*TPD*VC*CD*((1+i)^n-1)/ln(1+i)\n
     """
-    return 365*tpd*vc*cd*(1+i)**n/math.log(1+i)
+    A0 = 365 * tpd * vc * cd  # Initial annual traffic
+    if i == 0:
+        return A0 * n  # Avoid division by zero
+    else:
+        return A0 * ((1 + i)**n - 1) / i
 
 
 def predict_pavement_esal(r, so, sn, psi, mr):
@@ -41,7 +45,7 @@ def predict_pavement_esal(r, so, sn, psi, mr):
     esals = 10**right_side
     return esals
 
-def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
+def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal,sn=15):
     """
     Calculate the required Structural Number (SN) for given parameters.
     
@@ -58,7 +62,7 @@ def solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr, esal):
     def f(sn):
         val = sn[0]
         return predict_pavement_esal(Reliavility,Standard_Deviation,val,Delta_PSI,Mr) - esal
-    return fsolve(f,np.array([15]))[0]
+    return fsolve(f,np.array([sn]),xtol=0.001)[0]
 
 """
 Solucionar capa
@@ -103,6 +107,16 @@ class Section(list): # subclass list just for sanity
     def __init__(self, *layers):
         self.totalCost = 0
         super().__init__(*layers)
+    def get_sn(self):
+        return sum([l.sn * l.thickness for l in self])
+    def info(self):
+        return {
+            'total_sn': self.get_sn(),
+            'total_cost': self.totalCost,
+            'layers': [l.name for l in self],
+            'thicknesses': [l.thickness for l in self],
+            'sns': [l.sn for l in self]
+        }
 
 def make_material_list(material_table:pd.DataFrame)->list[Layer]:
     sorted_df = material_table.sort_values(by='surface', ascending=False)
@@ -247,20 +261,24 @@ def modify_thickness(section:Section, goal_sn:float,n=0):
     """
     epsilon = 0.01
     current_sn = section_sn(section)
-    if n==0:
-        cost_index = [(i,l) for i,l in enumerate(section)]
-        cost_index.sort(key=lambda x: x[1].cost_per_sn)
+    # Determine which layers can be modified
+    if n == 0:
+        modifiable_layers = [(i, layer) for i, layer in enumerate(section)]
     else:
-        lay=section[0:n+1]
-        cost_index = [(i,l) for i,l in enumerate(lay)]
-        cost_index.sort(key=lambda x: x[1].cost_per_sn)
+        modifiable_layers = [(i, layer) for i, layer in enumerate(section[:n])]
+    # Sort layers by cost efficiency (cost per SN)
+    modifiable_layers.sort(key=lambda x: x[1].cost_per_sn)
+    
+    # Define increment size based on layer minimum thickness
     increment_size = lambda l: 0.5 if l.min_lift < 2.0 else 1.0
     for _ in range(10):  # this may not benefit from multiple passes
         delta = goal_sn - current_sn+0.1
         if abs(delta) < epsilon:
             break
-        for i,_l in cost_index:
-            layer:Layer = section[i]
+            
+        # Modify only the modifiable layers
+        for i, _ in modifiable_layers:
+            layer = section[i]
             if layer.min_lift == layer.max_lift:
                 continue # pass layers with fixed thickness
             inc = increment_size(layer)
@@ -269,21 +287,17 @@ def modify_thickness(section:Section, goal_sn:float,n=0):
             layer.thickness += inc * adjustment
             if layer.thickness <= layer.min_lift:
                 layer.thickness = layer.min_lift
+            elif layer.thickness > layer.max_lift:
+                layer.thickness = layer.max_lift
             current_sn = section_sn(section)
             delta = goal_sn - current_sn+0.1#Added value to be over goal_sn in most cases. otherwise it goes near goal_sn
     return section
 
 
-def solve(material_table, goal_sn, grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
+def solve(material_table, goal_sn, grade=0.0, embankment_cost=0.0, excavation_cost=0.0,min_capas=1):
     material_list = make_material_list(material_table)
-    """
-    sample_population = 5000
-    trial_sections = [make_trial_section(material_list) for _ in range(sample_population)]
-    unique_sections = remove_duplicate_sections(trial_sections)
-    valid_sections = [s for s in unique_sections if validate_section(s)]
-    """
     valid_sections = []
-    for i in range(1,6):
+    for i in range(min_capas,6):
         valid_sections += make_possible_sections(material_list,i)
     modified_sections = [modify_thickness(s, goal_sn) for s in valid_sections]
     revalidated_sections = [s for s in modified_sections if validate_section(s)]
@@ -302,23 +316,63 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
         tab_ld = pd.read_csv(ruta)
     return tab_ld
 
-def resolve(material_table,sect:Section,SN:float,n:int,grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
+def resolve(material_table, sect, goal_sn, n, grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
     """
-    sect: Sección a recalcular
-    SN: SN a superar
-    n: Numero de capas dañadas sobre la sección aka capas a reemplazar
+    Modify an existing section by adjusting the top n layers to achieve the target SN.
+    If current SN is higher than target, it will reduce thicknesses to get as close as possible.
+    If current SN is lower than target, it will increase thicknesses and add layers if needed.
+    
+    Args:
+        material_table: DataFrame with material properties
+        sect: Existing section to modify
+        goal_sn: Target structural number
+        n: Number of top layers that can be modified
+        grade: Grade adjustment
+        embankment_cost: Cost of embankment
+        excavation_cost: Cost of excavation
+        
+    Returns:
+        tuple: (modified section, actual SN achieved)
     """
+    # First try modifying existing layers
+    modified_section = modify_thickness(sect, goal_sn, n)
+    
+    # Validate the modified section
+    if validate_section(modified_section):
+        return modified_section, section_sn(modified_section)
+    
+    # If validation fails, try adding new layers
     material_list = make_material_list(material_table)
-    prev_sect = Section(sect[n:])
-    valid_sections = make_possible_sections(material_list,n)
-    for i in range(len(valid_sections)):
-        valid_sections[i]+=deepcopy(prev_sect)
-    validated_sections = [s for s in valid_sections if validate_section(s)]
-    #Aumentar espesor
-    modified_sections = [modify_thickness(s, SN,len(s)-len(prev_sect)) for s in validated_sections]    
-    revalidated_sections = [s for s in modified_sections if validate_section(s)]
-    revalidated_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
-    return revalidated_sections
+    current_sn = section_sn(sect)
+    
+    # Get list of existing material names to avoid duplicates
+    existing_materials = {layer.name for layer in sect}
+    
+    # If current SN is lower than target, try adding new layers
+    if current_sn < goal_sn:
+        for material in material_list:
+            # Skip if material already exists in section
+            if material.name in existing_materials:
+                continue
+                
+            # Create a new layer with minimum thickness
+            new_layer = Layer(material_table.iloc[material_list.index(material)])
+            # Insert it before the first non-modifiable layer
+            sect.insert(n, new_layer)
+            
+            # Try modifying the section with the new layer
+            modified_section = modify_thickness(sect, goal_sn, n+1)
+            
+            # Validate the modified section
+            if validate_section(modified_section):
+                return modified_section, section_sn(modified_section)
+            
+            # If validation fails, remove the added layer and try next material
+            sect.pop(n)
+    
+    # If we couldn't find a valid solution, return the original section
+    return sect, section_sn(sect)
+
 #from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=63442967,f_mean=lambda x:0.047,f_std=lambda x:0.057)->tuple[np.array,np.array]:
     """
@@ -354,7 +408,7 @@ def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=6344
 #print(make_simulated_transit(100,size=5000,n=360,f_mean=lambda x:x*0.02,f_std=lambda y:y*0.0057))
 def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI,Mr)->int:
     """
-    arr: array like with acumulative transit\n
+    arr: array like with sn from acumulative transit\n
     Makes a binary search for the postion when the design fails first\n
     return len(arr)+1 if doesnt fail
     """
@@ -363,7 +417,7 @@ def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI
     mid = 0
     while low <= high:
         mid = (high + low) // 2
-        sn = solve_sn(Reliavility, Standard_Deviation, Delta_PSI, Mr,arr[mid])
+        sn = arr[mid]
         if sn < SN_dis:
             low = mid + 1
         elif sn > SN_dis:
@@ -375,90 +429,195 @@ def calculate_break(arr:np.array,SN_dis,Reliavility,Standard_Deviation,Delta_PSI
     #note, it returns len(arr)+1 if dont fail on all the array
     return mid+1
 
-def W18_prediction(TPD=402.39,vc=0.5,cd=1.0,i=0.05,n=30,step=3)->list:
-    """Generate the W18 predictions used for the traditional approach in flexible pavement \n
-    Additionally creates the additional predictions of W18 to generate an aproach of flexibility in the design with intermediate steps. \n
-    TPD:int = Trafico promedio diario\n
-    vc:float =Distribución por sentido (usalmente 0.5)\n
-    cd:float =Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)\n
-    i:float =indice de crecimiento \n
-    n:int =años de diseño\n
-    return list of pred_w18 for TPD, last is complete
+def W18_i_regression(traffic_annual:np.array)->float:
     """
-    res = []
-    for i in range(1,step+1):
-        res.append(pred_W18(TPD,vc,cd,i,n//step*i))
-    return res
-def W18_linear_regression(arr:np.array)->np.poly1d:
-    """\n
-    getting a new TPD recalculate with pred_W18
+    Calculate the annual growth rate (i) from annual traffic data.
+    Args:
+        traffic_annual: Array of annual traffic values
+    Returns:
+        float: Annual growth rate (i) that can be used in pred_W18
     """
-    x= np.arange(len(arr))
-    y = arr
-    #m, b = np.polyfit(x, y, deg=1)
-    #plt.axline(xy1=(0, b), slope=m, label=f'$y = {m:.1f}x {b:+.1f}$')
-
-    coef = np.polyfit(x,y,1)
-    poly1d_fn = np.poly1d(coef) 
-    #plt.plot(x,y, 'yo', x, poly1d_fn(x), '--k')
-    #plt.show()
-    return poly1d_fn
+    growth_rates = []
+    for k in range(1, len(traffic_annual)):
+        if traffic_annual[k-1] == 0:
+            continue
+        i_k = (traffic_annual[k] / traffic_annual[k-1]) - 1
+        growth_rates.append(i_k)
+    return np.mean(growth_rates)
 def npv(r, arr):
     sum_pv = 0.0
     for i in range(len(arr)):
         sum_pv += arr[i] / ((1 + r) ** i)
     return sum_pv
+def traditional_design(params:dict,DF,min_capas=1)->np.array:
+    """
+    Funtion to design a pavement by predicting the W18 and using the traditional approach\n
+    params:dict = dictionary with all the parameters, needs to have the following keys:\n
+    TPD:int = Trafico promedio diario\n
+    vc:float =Distribución por sentido (usalmente 0.5)\n
+    cd:float =Carril de diseño (usualmente 1.0 si es de un solo carril por sentido)\n
+    n:int =años de diseño\n
+    rate:float =tasa de descuento\n    
+    DF:pd.DataFrame = DataFrame with the materials\n
+    return section of the design,sn_design,m
+    """
+    # Use same logic as make_simulated_transit
+    initial_monthly_trips = params['TPD'] * 365 / 12 * params['vc'] * params['cd']
+    
+    # Generate monthly traffic using growth rates (same as make_simulated_transit)
+    monthly_traffic = np.zeros(params['n'])
+    for month in range(params['n']):
+        growth_rate = params['mu_function'](month)
+        monthly_traffic[month] = initial_monthly_trips * (1 + growth_rate)
+    
+    # Convert monthly traffic to annual traffic
+    mean_traffic = np.zeros(params['n']//12)
+    for i in range(params['n']//12):
+        annual_traffic = 0
+        for j in range(12):
+            month_idx = i * 12 + j
+            if month_idx < len(monthly_traffic):
+                annual_traffic += monthly_traffic[month_idx]
+        mean_traffic[i] = annual_traffic
+    
+    m = W18_i_regression(mean_traffic)
+    esal = pred_W18(params['TPD'],params['vc'],params['cd'],m,params['n']//12)
+    sn_design = solve_sn(params['Reliavility'],params['Standard_Deviation'],params['Delta_PSI'],params['Mr'],esal)
+
+    dis_sect = solve(DF,sn_design,params['grade'],params['emb'],params['excv'],min_capas)[0]
+    return dis_sect,sn_design,m
+def calculate_sn_projected(acumulated:np.array,params:dict):
+    """
+    transit: array with acumulated traffic
+    params: dictionary with all the parameters
+    return: array with projected SN
+    """
+    sn_projected = np.zeros(len(acumulated))
+    sn_projected[-1] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[-1])
+    for i in range(len(acumulated)-2,-1,-1):
+        try:
+            sn_projected[i] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[i],sn_projected[i+1])
+        except:
+            raise Exception("Error in calculate_sn_projected")
+    return sn_projected
+def save_design(section:Section,sim:int,period:int):
+    sect_info = {'simulation':sim,'period':period,'total_sn':section.get_sn(),'total_cost':section.totalCost,'layer_materials':[],'layer_thicknesses':[],'layer_sns':[]}
+    # Store layer information
+    materials = []
+    thicknesses = []
+    sns = []
+    for layer in section:
+        materials.append(layer.name)
+        thicknesses.append(layer.thickness)
+        sns.append(layer.sn)
+    sect_info['layer_materials'] = materials
+    sect_info['layer_thicknesses'] = thicknesses
+    sect_info['layer_sns'] = sns
+    return sect_info
 def evaluate_flexibility(params:dict,DF)->np.array:
     """
-    Funtion to evaluate the design flexibility\n
+    Function to evaluate the design flexibility\n
     params:dict = dictionary with all the parameters, keys\n
     DF:pd.DataFrame = DataFrame with the materials\n
     return array of size length of npv (one each for all the simulations)
     """
-    res = np.zeros(params['size'])
-    random_transit,acumulated = make_simulated_transit(params['TPD'],params['vc'],params['cd'],params['size'],params['n'],params['seedint'],params['mu_function'],params['sigma_function'])
-    n_step= params['step'] #TODO Step changed to be directly n_step
+    # Create list to store section information (would be converted to DataFrame later)
+    section_info = []
+    
+    random_esals,acumulated = make_simulated_transit(params['TPD'],params['vc'],params['cd'],params['size'],params['n'],params['seedint'],params['mu_function'],params['sigma_function'])
+    n_step = params['step']
+    
+    # Step 1: Generate traditional design for full period
+    first_design, sn_first_design, m = traditional_design(params, DF, params.get('min_capas', 4))
+    
+    # Step 2: Calculate base layers SN (bottom layers that won't be modified frequently)
+    num_top_layers = params.get('capas', 3)  # Number of top layers to modify
+    base_sn = 0
+    for i in range(num_top_layers, len(first_design)):
+        base_sn += first_design[i].sn * first_design[i].thickness
+    
+    # Step 3: Calculate step design for n_step period
+    projected_w18_step = pred_W18(params['TPD'], params['vc'], params['cd'], m, n_step//12)
+    projected_sn_step = solve_sn(params['Reliavility'], params['Standard_Deviation'], params['Delta_PSI'], params['Mr'], projected_w18_step)
+    
+    # Step 4: Calculate reduction in base SN per step (gradual deterioration)
+    total_steps = params['n'] // n_step
+    reduce_base_step = base_sn / total_steps if total_steps > 0 else 0
+    
+    # Step 5: Initial step design - design top layers for first step
+    sn_step = projected_sn_step + base_sn - reduce_base_step
+    step_design, actual_sn = resolve(DF, deepcopy(first_design), sn_step, num_top_layers, params['grade'], params['emb'], params['excv'])
+    
+    # Store initial design information for all simulations
     for sim in range(params['size']):
-        random_cost = np.zeros(params['n']+1) #+1 needed to keep the last value in bound of size
-        random_cost[0] = params['sect'].totalCost + params['cost_rb']
-        acumulated_sim:np.array=acumulated[sim,:]
-        n_break:int = calculate_break(acumulated_sim,params['sn_design']*params['factor'],params['Reliavility'],params['Standard_Deviation'],params['Delta_PSI'],params['Mr'])
+        section_info.append(save_design(step_design, sim, 0))
+    
+        # Step 6: Process each simulation
+    for sim in range(params['size']):
+        current_base_sn = base_sn
+        acumulated_sim = acumulated[sim, :]
+        current_step_design = deepcopy(step_design)  # Start with initial step design
         
-        previous=0
-        while n_break<=params['n'] and previous!=n_break:
-            #redesign when break, and add to the cost on period n_break. 
-            #TODO
-            #Then take the random transit and redesign
-            transit_from_simulation= random_transit[sim,:]
-            try:
-                fun=W18_linear_regression(transit_from_simulation[previous:n_break])
-            except np.linalg.LinAlgError:
-                print("linear error",sim,"/"+str(params['size']))
+        # Use calculate_sn_projected to get all required SNs at once
+        sn_projected = calculate_sn_projected(acumulated_sim, params)
+        
+        # Calculate current top layers SN capacity
+        current_top_sn = sum([layer.sn * layer.thickness for layer in current_step_design[:num_top_layers]])
+        
+        previous_break = 0
+        
+        # Loop until we reach the end of the simulation period
+        while previous_break < params['n']:
+            # Create array of required top SN (subtracting current base SN)
+            required_top_sn_array = np.maximum(0, sn_projected[previous_break:] - current_base_sn)
+            
+            # Use calculate_break to find when top layers fail
+            n_break = calculate_break(required_top_sn_array, current_top_sn, 
+                                    params['Reliavility'], params['Standard_Deviation'], 
+                                    params['Delta_PSI'], params['Mr'])
+            
+            # Adjust n_break to absolute position
+            n_break += previous_break
+            
+            # If no break found within simulation period, we're done
+            if n_break >= params['n']:
                 break
-            except:
-                print("other error",sim,"/"+str(params['size']))
-                break
-            #funtion is the transit for the month. need to acumulate for design
-            m, b = fun.coef  # Assuming a linear regression (degree 1) returns two coefficients [m, b]
+                
+            # Calculate base deterioration based on time elapsed
+            time_elapsed = n_break - previous_break
+            steps_elapsed = time_elapsed / n_step
+            base_reduction = reduce_base_step * steps_elapsed
+            current_base_sn = max(0, current_base_sn - base_reduction)
             
-            sum_k = ((n_step - 1) * n_step) / 2
-            sum_b = n_step * b
-            new_trans = max(m * sum_k + sum_b,0)
-            """
-            new_trans = 0
-            for k in range(n_step):
-                new_trans+=max(fun(k),0) 
-            """
-            sn_rd = solve_sn(params['Reliavility'],params['Standard_Deviation'],params['Delta_PSI'],params['Mr'],new_trans) #Redesign with sn_rd
+            # Get required SN at break point
+            required_sn = sn_projected[n_break]
             
-            rd_arr= resolve(DF,params['sect'],sn_rd,params['capas'],params['grade'],params['emb'],params['excv'])
-            random_cost[n_break]= rd_arr[0].totalCost + params['cost_rb']#cost of building the redesign 
-            previous=n_break  #TODO CHECK+1 (n_break comes with +1 )
+            # Redesign based on current conditions
+            if current_base_sn <= 0:
+                # If base is exhausted, design completely new section using solve()
+                current_step_design = solve(DF, required_sn, params['grade'], params['emb'], 
+                                          params['excv'], params.get('min_capas', 1))[0]
+                current_base_sn = 0  # Reset base SN since we have a new design
+                # Recalculate base SN for new design
+                current_base_sn = sum([layer.sn * layer.thickness 
+                                     for layer in current_step_design[num_top_layers:]])
+            else:
+                # Use resolve() to modify top layers only
+                current_step_design, actual_achieved_sn = resolve(DF, deepcopy(current_step_design), 
+                                                                required_sn, num_top_layers, 
+                                                                params['grade'], params['emb'], params['excv'])
             
-            #TODO PENSAR BIEN EN INDICES 
-            acumulated_sim:np.array=acumulated[sim,:]
-            n_break = calculate_break(acumulated_sim-acumulated_sim[previous-1],sn_rd*params['factor'],params['Reliavility'],params['Standard_Deviation'],params['Delta_PSI'],params['Mr'])
-        #calculate NPV from redesign until n
-        res[sim]= npv(params['rate'],random_cost)
-    return res,acumulated
+            # Update current top layers SN capacity after redesign
+            current_top_sn = sum([layer.sn * layer.thickness for layer in current_step_design[:num_top_layers]])
+            
+            # Store redesign information
+            section_info.append(save_design(current_step_design, sim, n_break))
+            
+            # Update previous break position
+            previous_break = n_break
+    
+    # Create DataFrame with all section information
+    results_df = pd.DataFrame(section_info)
+    
+    return results_df, acumulated
 #print(npv(0.05,make_simulated_transit(100,size=2,n=3)[0]))
