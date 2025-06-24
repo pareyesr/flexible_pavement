@@ -316,7 +316,7 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
         tab_ld = pd.read_csv(ruta)
     return tab_ld
 
-def resolve(material_table, sect, goal_sn, n, grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
+def resolve(material_table, sect, goal_sn, unmodify_bottom_layers=0,grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
     """
     Modify an existing section by adjusting the top n layers to achieve the target SN.
     If current SN is higher than target, it will reduce thicknesses to get as close as possible.
@@ -326,7 +326,7 @@ def resolve(material_table, sect, goal_sn, n, grade=0.0, embankment_cost=0.0, ex
         material_table: DataFrame with material properties
         sect: Existing section to modify
         goal_sn: Target structural number
-        n: Number of top layers that can be modified
+        unmodify_bottom_layers: Number of base layers that cannot be modified
         grade: Grade adjustment
         embankment_cost: Cost of embankment
         excavation_cost: Cost of excavation
@@ -334,44 +334,23 @@ def resolve(material_table, sect, goal_sn, n, grade=0.0, embankment_cost=0.0, ex
     Returns:
         tuple: (modified section, actual SN achieved)
     """
-    # First try modifying existing layers
-    modified_section = modify_thickness(sect, goal_sn, n)
     
-    # Validate the modified section
-    if validate_section(modified_section):
-        return modified_section, section_sn(modified_section)
-    
-    # If validation fails, try adding new layers
     material_list = make_material_list(material_table)
-    current_sn = section_sn(sect)
-    
-    # Get list of existing material names to avoid duplicates
-    existing_materials = {layer.name for layer in sect}
-    
-    # If current SN is lower than target, try adding new layers
-    if current_sn < goal_sn:
-        for material in material_list:
-            # Skip if material already exists in section
-            if material.name in existing_materials:
-                continue
-                
-            # Create a new layer with minimum thickness
-            new_layer = Layer(material_table.iloc[material_list.index(material)])
-            # Insert it before the first non-modifiable layer
-            sect.insert(n, new_layer)
-            
-            # Try modifying the section with the new layer
-            modified_section = modify_thickness(sect, goal_sn, n+1)
-            
-            # Validate the modified section
-            if validate_section(modified_section):
-                return modified_section, section_sn(modified_section)
-            
-            # If validation fails, remove the added layer and try next material
-            sect.pop(n)
-    
-    # If we couldn't find a valid solution, return the original section
-    return sect, section_sn(sect)
+    for i in reversed(range(len(material_list))):
+        for j in range(unmodify_bottom_layers):
+            if material_list[i].name == sect[-j-1].name:
+                material_list.pop(i)
+    possible_sections = []
+    for i in range(1,len(material_list)):
+        possible_sections += make_possible_sections(material_list,i)
+    for section in possible_sections:
+        section.extend(deepcopy(sect[len(sect)-unmodify_bottom_layers:]))
+    modified_sections = []
+    for section in possible_sections:
+        modified_sections.append(modify_thickness(section, goal_sn,len(section)-unmodify_bottom_layers))
+    modified_sections.sort(key=lambda s: section_cost(s, grade, embankment_cost, excavation_cost))
+    valid_sections = [s for s in modified_sections if validate_section(s)]
+    return valid_sections[0], section_sn(valid_sections[0])
 
 #from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 def make_simulated_transit(TPD=402.39,vc=0.5,cd=1.0,size=5000,n=360,seedint=63442967,f_mean=lambda x:0.047,f_std=lambda x:0.057)->tuple[np.array,np.array]:
@@ -499,8 +478,11 @@ def calculate_sn_projected(acumulated:np.array,params:dict):
             sn_projected[i] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[i],sn_projected[i+1])
         except:
             raise Exception("Error in calculate_sn_projected")
+    start_value = sn_projected[0]
+    for i in range(len(sn_projected)):
+        sn_projected[i] -= start_value * (len(sn_projected)-i-1)/(len(sn_projected)-1)
     return sn_projected
-def save_design(section:Section,sim:int,period:int):
+def save_design(section:Section,sim:int,period:int,startover:bool=False):
     sect_info = {'simulation':sim,'period':period,'total_sn':section.get_sn(),'total_cost':section.totalCost,'layer_materials':[],'layer_thicknesses':[],'layer_sns':[]}
     # Store layer information
     materials = []
@@ -513,6 +495,7 @@ def save_design(section:Section,sim:int,period:int):
     sect_info['layer_materials'] = materials
     sect_info['layer_thicknesses'] = thicknesses
     sect_info['layer_sns'] = sns
+    sect_info['startover'] = startover
     return sect_info
 def evaluate_flexibility(params:dict,DF)->np.array:
     """
@@ -529,7 +512,7 @@ def evaluate_flexibility(params:dict,DF)->np.array:
     
     # Step 1: Generate traditional design for full period
     first_design, sn_first_design, m = traditional_design(params, DF, params.get('min_capas', 4))
-    
+    acumulated_SN = np.zeros((params['size'],params['n']))
     # Step 2: Calculate base layers SN (bottom layers that won't be modified frequently)
     num_top_layers = params.get('capas', 3)  # Number of top layers to modify
     base_sn = 0
@@ -544,9 +527,16 @@ def evaluate_flexibility(params:dict,DF)->np.array:
     total_steps = params['n'] // n_step
     reduce_base_step = base_sn / total_steps if total_steps > 0 else 0
     
-    # Step 5: Initial step design - design top layers for first step
-    sn_step = projected_sn_step + base_sn - reduce_base_step
-    step_design, actual_sn = resolve(DF, deepcopy(first_design), sn_step, num_top_layers, params['grade'], params['emb'], params['excv'])
+    
+    # Calculate how much SN the top layers need to provide
+    # Base layers will deteriorate over time, so we need to account for that
+    base_sn_after_step = base_sn - reduce_base_step
+    required_top_sn = projected_sn_step - base_sn_after_step
+    
+    # Design top layers to meet the required SN and ignore the base layers SN
+    step_design, actual_sn = resolve(DF, deepcopy(first_design), required_top_sn+base_sn, 
+                                   len(first_design)-num_top_layers, params['grade'], params['emb'], params['excv'])
+    
     
     # Store initial design information for all simulations
     for sim in range(params['size']):
@@ -554,70 +544,67 @@ def evaluate_flexibility(params:dict,DF)->np.array:
     
         # Step 6: Process each simulation
     for sim in range(params['size']):
-        current_base_sn = base_sn
         acumulated_sim = acumulated[sim, :]
         current_step_design = deepcopy(step_design)  # Start with initial step design
         
         # Use calculate_sn_projected to get all required SNs at once
         sn_projected = calculate_sn_projected(acumulated_sim, params)
-        
+        acumulated_SN[sim,:] = sn_projected
         # Calculate current top layers SN capacity
-        current_top_sn = sum([layer.sn * layer.thickness for layer in current_step_design[:num_top_layers]])
+        top_sn = actual_sn-base_sn
         
         previous_break = 0
-        
+        current_base_sn = base_sn
         # Loop until we reach the end of the simulation period
         while previous_break < params['n']:
             # Create array of required top SN (subtracting current base SN)
-            required_top_sn_array = np.maximum(0, sn_projected[previous_break:] - current_base_sn)
             
             # Use calculate_break to find when top layers fail
-            n_break = calculate_break(required_top_sn_array, current_top_sn, 
+            n_break = calculate_break(sn_projected, top_sn+reduce_base_step, 
                                     params['Reliavility'], params['Standard_Deviation'], 
                                     params['Delta_PSI'], params['Mr'])
             
-            # Adjust n_break to absolute position
-            n_break += previous_break
             
             # If no break found within simulation period, we're done
             if n_break >= params['n']:
                 break
-                
-            # Calculate base deterioration based on time elapsed
-            time_elapsed = n_break - previous_break
-            steps_elapsed = time_elapsed / n_step
-            base_reduction = reduce_base_step * steps_elapsed
-            current_base_sn = max(0, current_base_sn - base_reduction)
-            
-            # Get required SN at break point
-            required_sn = sn_projected[n_break]
             
             # Redesign based on current conditions
+            annual_traffic = np.zeros((n_break-previous_break)//12)
+            for i in range(n_break-previous_break):
+                if i//12 < len(annual_traffic):
+                    annual_traffic[i//12] += random_esals[sim,previous_break+i]
+                else:
+                    break
+            m = W18_i_regression(annual_traffic)
+            esal = pred_W18(params['TPD'],params['vc'],params['cd'],m,n_step//12)
+            required_sn = solve_sn(params['Reliavility'], params['Standard_Deviation'], 
+                               params['Delta_PSI'], params['Mr'], esal,actual_sn)
             if current_base_sn <= 0:
                 # If base is exhausted, design completely new section using solve()
                 current_step_design = solve(DF, required_sn, params['grade'], params['emb'], 
                                           params['excv'], params.get('min_capas', 1))[0]
-                current_base_sn = 0  # Reset base SN since we have a new design
+                # Reset base SN since we have a new design
                 # Recalculate base SN for new design
                 current_base_sn = sum([layer.sn * layer.thickness 
                                      for layer in current_step_design[num_top_layers:]])
+                actual_achieved_sn = section_sn(current_step_design)
+                base_sn = len(current_step_design)-num_top_layers
+                section_info.append(save_design(current_step_design, sim, n_break,startover=True))
             else:
+                current_base_sn -= reduce_base_step
                 # Use resolve() to modify top layers only
+                required_top_sn = required_sn - current_base_sn
                 current_step_design, actual_achieved_sn = resolve(DF, deepcopy(current_step_design), 
-                                                                required_sn, num_top_layers, 
+                                                                required_top_sn+current_base_sn, len(current_step_design)-num_top_layers, 
                                                                 params['grade'], params['emb'], params['excv'])
+                section_info.append(save_design(current_step_design, sim, n_break,startover=False))
             
-            # Update current top layers SN capacity after redesign
-            current_top_sn = sum([layer.sn * layer.thickness for layer in current_step_design[:num_top_layers]])
-            
-            # Store redesign information
-            section_info.append(save_design(current_step_design, sim, n_break))
-            
+            top_sn += actual_achieved_sn-base_sn
             # Update previous break position
             previous_break = n_break
     
     # Create DataFrame with all section information
     results_df = pd.DataFrame(section_info)
     
-    return results_df, acumulated
-#print(npv(0.05,make_simulated_transit(100,size=2,n=3)[0]))
+    return results_df, acumulated_SN

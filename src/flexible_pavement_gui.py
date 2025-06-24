@@ -1,32 +1,125 @@
 import tkinter as tk
 from tkinter import ttk
 import os
-# Implement the default Matplotlib key bindings.
-from matplotlib.backend_bases import key_press_handler
-from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,NavigationToolbar2Tk)
-from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from tkinter import messagebox
-import matplotlib.pyplot as plt
 from tkinter import filedialog
 from scipy.optimize import curve_fit
+import tkinter.font as tkfont
+
+# Import matplotlib components with error handling
+try:
+    import matplotlib
+    matplotlib.use('TkAgg')  # Set backend before importing pyplot
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
+    from matplotlib.figure import Figure
+    # Only import key_press_handler if needed
+    try:
+        from matplotlib.backend_bases import key_press_handler
+    except ImportError:
+        key_press_handler = None
+except ImportError as e:
+    print(f"Matplotlib import error: {e}")
+    # Create fallback classes if matplotlib fails
+    class Figure:
+        def __init__(self, *args, **kwargs):
+            pass
+    class FigureCanvasTkAgg:
+        def __init__(self, *args, **kwargs):
+            pass
+    class NavigationToolbar2Tk:
+        def __init__(self, *args, **kwargs):
+            pass
+    plt = None
 
 def show_copyable_message(title, message):
-    win = tk.Toplevel()
-    win.title(title)
-    win.geometry("600x200")
-    win.resizable(True, True)
-    label = tk.Label(win, text=title, font=("Arial", 12, "bold"))
-    label.pack(pady=(10, 0))
-    text = tk.Text(win, wrap="word", height=6)
-    text.insert("1.0", message)
-    text.config(state="normal")  # Allow selection and copying
-    text.pack(expand=True, fill="both", padx=10, pady=10)
-    text.focus_set()
-    # Add a button to close the window
-    btn = tk.Button(win, text="Close", command=win.destroy)
-    btn.pack(pady=(0, 10))
+    """Show a message dialog with copyable text"""
+    try:
+        import pyperclip
+        pyperclip.copy(message)
+        messagebox.showinfo(title, message + "\n\n(Text has been copied to clipboard)")
+    except ImportError:
+        # If pyperclip is not available, just show the message
+        messagebox.showinfo(title, message)
+
+def create_params_dict(app_instance, 
+                      include_traffic=True, 
+                      include_design=True, 
+                      include_simulation=True, 
+                      include_flexible=True,
+                      include_functions=True):
+    """
+    Centralized function to create parameter dictionaries for various operations.
+    
+    Args:
+        app_instance: The App instance to get values from
+        include_traffic: Include traffic parameters (TPD, vc, cd)
+        include_design: Include design parameters (reliability, SN, etc.)
+        include_simulation: Include simulation parameters (size, n, seedint)
+        include_flexible: Include flexibility parameters (step, capas, etc.)
+        include_functions: Include growth functions (mu_function, sigma_function)
+    
+    Returns:
+        dict: Parameter dictionary with requested parameters
+    """
+    params = {}
+    
+    if include_traffic:
+        params.update({
+            "TPD": float(app_instance.tpd.get() or 402.39),
+            "vc": float(app_instance.vc.get() or 0.5),
+            "cd": float(app_instance.cd.get() or 1.0),
+        })
+    
+    if include_design:
+        params.update({
+            "Reliavility": float(app_instance.confianza_entry.get() or 0.9),
+            "Standard_Deviation": float(app_instance.desviacion_entry.get() or 0.45),
+            "Delta_PSI": float(app_instance.delta_psi_entry.get() or 2.0),
+            "Mr": float(app_instance.modulo_resiliente_entry.get() or 3000),
+            "grade": float(app_instance.grade.get() or 0.0),
+            "emb": float(app_instance.emb.get() or 0.0),
+            "excv": float(app_instance.exc.get() or 0.0),
+        })
+    
+    if include_simulation:
+        params.update({
+            "size": int(app_instance.size.get() or 5000),
+            "n": int(app_instance.n.get() or 360),
+            "seedint": int(app_instance.seedint.get() or 63442967),
+        })
+    
+    if include_flexible:
+        # Handle capas parameter - could be from different widgets depending on context
+        capas_value = 3  # default
+        if hasattr(app_instance, 'layer_count'):
+            capas_value = int(app_instance.layer_count.get() or 3)
+        elif hasattr(app_instance, 'capas'):
+            capas_value = int(app_instance.capas.get() or 3)
+            
+        params.update({
+            "rate": float(app_instance.rate.get() or 0.05),
+            "step": round(float(app_instance.intervention_interval_value.get()) * (12 if app_instance.intervention_interval_unit.get() == "Años" else 1)),
+            "capas": capas_value,
+            "factor": float(app_instance.life_factor.get() or 1.0),
+            "cost_rb": app_instance.calculate_rb_cost(),
+        })
+    
+    if include_functions:
+        # Set default functions if not available
+        if not hasattr(app_instance, 'mean_func'):
+            app_instance.mean_func = lambda x: 0.047
+        if not hasattr(app_instance, 'std_func'):
+            app_instance.std_func = lambda x: 0.057
+            
+        params.update({
+            "mu_function": app_instance.mean_func,
+            "sigma_function": app_instance.std_func,
+        })
+    
+    return params
 
 class App:
     def __init__(self, master):
@@ -164,18 +257,6 @@ class App:
 
     def create_rand_graph_widgets(self,notebook):
         """Create random graph widgets with current parameters"""
-        # Get current parameters
-        tpd = float(self.tpd.get() or 402.39)
-        vc = float(self.vc.get() or 0.5)
-        cd = float(self.cd.get() or 1.0)
-        size = int(self.size.get() or 5000)
-        n = int(self.n.get() or 360)
-        rate = float(self.rate.get() or 0.05)
-        cost_rb = float(self.cost_rb.get() or 1000)
-        capas = int(self.capas.get() or 2)
-        seedint = int(self.seedint.get() or 63442967)
-        mu_function = self.mean_func
-        sigma_function = self.std_func
         # Load materials
         script_dir = os.path.dirname(os.path.abspath(__file__))
         csv_path = os.path.join(script_dir, str(self.cruta.get()) + ".csv")
@@ -237,31 +318,19 @@ class App:
         else:
             # If no results exist or failed to read, run simulation
             if result is None:
-                # Update parameters dictionary
-                self.dict_params = {
-                    "TPD": tpd,
-                    "vc": vc,
-                    "cd": cd,
-                    "size": size,
-                    "n": n,
-                    "rate": rate,
+                # Update parameters dictionary using centralized function
+                self.dict_params = create_params_dict(self, 
+                                                    include_traffic=True,
+                                                    include_design=True, 
+                                                    include_simulation=True,
+                                                    include_flexible=True,
+                                                    include_functions=True)
+                
+                # Add specific parameters for this operation
+                self.dict_params.update({
                     "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
-                    "Reliavility": float(self.confianza_entry.get() or 0.9),
-                    "Standard_Deviation": float(self.desviacion_entry.get() or 0.45),
-                    "Delta_PSI": float(self.delta_psi_entry.get() or 2.0),
-                    "Mr": float(self.modulo_resiliente_entry.get() or 3000),
                     "sect": sect,
-                    "grade": float(self.grade.get() or 0.0),
-                    "emb": float(self.emb.get() or 0.0),
-                    "excv": float(self.exc.get() or 0.0),
-                    "cost_rb": cost_rb,
-                    "capas": capas,
-                    "step": round(float(self.intervention_interval_value.get()) * (12 if self.intervention_interval_unit.get() == "Años" else 1)),
-                    "seedint": seedint,
-                    "mu_function": mu_function,
-                    "sigma_function": sigma_function,
-                    "factor": float(self.life_factor.get() or 1.0)
-                }
+                })
                 
                 result, self.acumulated = evaluate_flexibility(self.dict_params,DF)
                 # Save results
@@ -1255,36 +1324,13 @@ class App:
                 # Default standard deviation function
                 self.std_func = lambda x: 0.057
             
-            # Check if we have the necessary parameters
-            if not hasattr(self, 'dict_params'):
-                # Create the parameters dictionary if it doesn't exist
-                tpd = float(self.tpd.get() or 402.39)
-                vc = float(self.vc.get() or 0.5)
-                cd = float(self.cd.get() or 1.0)
-                size = int(self.size.get() or 5000)
-                n = int(self.n.get() or 360)
-                seedint = int(self.seedint.get() or 63442967)
-                
-                self.dict_params = {
-                    "TPD": tpd,
-                    "vc": vc,
-                    "cd": cd,
-                    "size": size,
-                    "n": n,
-                    "seedint": seedint,
-                    "mu_function": self.mean_func,
-                    "sigma_function": self.std_func
-                }
-            else:
-                # Update the dictionary with current values
-                self.dict_params["TPD"] = float(self.tpd.get() or 402.39)
-                self.dict_params["vc"] = float(self.vc.get() or 0.5)
-                self.dict_params["cd"] = float(self.cd.get() or 1.0)
-                self.dict_params["size"] = int(self.size.get() or 5000)
-                self.dict_params["n"] = int(self.n.get() or 360)
-                self.dict_params["seedint"] = int(self.seedint.get() or 63442967)
-                self.dict_params["mu_function"] = self.mean_func
-                self.dict_params["sigma_function"] = self.std_func
+            # Create or update the parameters dictionary using centralized function
+            self.dict_params = create_params_dict(self, 
+                                                 include_traffic=True,
+                                                 include_design=False, 
+                                                 include_simulation=True,
+                                                 include_flexible=False,
+                                                 include_functions=True)
         
             # First plot: Growth function with standard deviation bands
             plot_simulated_function(self.dict_params)
@@ -1334,31 +1380,23 @@ class App:
         Generate and display the traditional design plot using parameters from other tabs
         """
         try:
-            # Get parameters from existing entries in other tabs
-            params = {
-                'TPD': float(self.tpd.get() or 402.39),
-                'vc': float(self.vc.get() or 0.5),
-                'cd': float(self.cd.get() or 1.0),
-                'n': int(self.n.get() or 360),
-                'Reliavility': float(self.confianza_entry.get() or 0.9),
-                'Standard_Deviation': float(self.desviacion_entry.get() or 0.45),
-                'Delta_PSI': float(self.delta_psi_entry.get() or 2.0),
-                'Mr': float(self.modulo_resiliente_entry.get() or 3000),
-                'grade': float(self.grade.get() or 0.0),
-                'emb': float(self.emb.get() or 0.0),
-                'excv': float(self.exc.get() or 0.0),
-                'mu_function': self.mean_func if hasattr(self, 'mean_func') else lambda x: 0.047
-            }
+            # Get parameters from existing entries in other tabs using centralized function
+            params = create_params_dict(self, 
+                                       include_traffic=True,
+                                       include_design=True, 
+                                       include_simulation=True,
+                                       include_flexible=False,
+                                       include_functions=True)
 
             # Clear previous plot
             self.trad_fig.clear()
 
             # Generate new plot
-            fig, (ax1, ax2) = plot_traditional_design(params, DF)
+            fig, (ax1, ax2, ax3) = plot_traditional_design(params, DF)
             
             # Copy the plots to our figure
-            for i, ax in enumerate([ax1, ax2]):
-                self.trad_fig.add_subplot(2, 1, i+1)
+            for i, ax in enumerate([ax1, ax2, ax3]):
+                self.trad_fig.add_subplot(3, 1, i+1)
                 for line in ax.get_lines():
                     self.trad_fig.axes[i].plot(line.get_xdata(), line.get_data()[1], 
                                              color=line.get_color(), 
@@ -1371,14 +1409,14 @@ class App:
                 self.trad_fig.axes[i].legend()
 
             # Add shaded area for SN exceedance if it exists
-            if hasattr(ax2, 'collections'):
-                for collection in ax2.collections:
+            if hasattr(ax3, 'collections'):
+                for collection in ax3.collections:
                     if collection.get_label() == 'SN Exceedance':
-                        self.trad_fig.axes[1].fill_between(collection.get_paths()[0].vertices[:, 0],
+                        self.trad_fig.axes[2].fill_between(collection.get_paths()[0].vertices[:, 0],
                                                          collection.get_paths()[0].vertices[:, 1],
                                                          color='red', alpha=0.3,
                                                          label='SN Exceedance')
-                        self.trad_fig.axes[1].legend()
+                        self.trad_fig.axes[2].legend()
 
             self.trad_fig.tight_layout()
             self.trad_canvas.draw()
@@ -1389,33 +1427,23 @@ class App:
         except Exception as e:
             messagebox.showerror("Error", f"Error al generar el gráfico: {str(e)}")
 
+# Import functions based on how this module is being used
+try:
+    # Try relative imports first (when imported as a module)
+    from .Logica import solve_sn, cargar_materiales, solve, resolve, evaluate_flexibility
+    from .results import plot_simulated_function, plot_simulated_transit, plot_traditional_design
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    from Logica import solve_sn, cargar_materiales, solve, resolve, evaluate_flexibility
+    from results import plot_simulated_function, plot_simulated_transit, plot_traditional_design
+
+# Load default materials
+script_dir = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(script_dir, "default.csv")
+DF = cargar_materiales(csv_path)
+
 # Crear la aplicación
 if __name__ == "__main__":
-    #Es necesario si quieres correr la app desde este modulo
-    from Logica import solve_sn
-    from Logica import cargar_materiales
-    from Logica import solve
-    from Logica import resolve
-    from Logica import evaluate_flexibility
-    from results import plot_simulated_function
-    from results import plot_simulated_transit
-    from results import plot_traditional_design
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, "default.csv")
-    DF:pd.DataFrame =cargar_materiales(csv_path)
     root = tk.Tk()
     app = App(root)
     root.mainloop()
-else:
-    from .Logica import solve_sn
-    from .Logica import cargar_materiales
-    from .Logica import solve
-    from .Logica import resolve
-    from .Logica import evaluate_flexibility
-    from .results import plot_simulated_function
-    from .results import plot_simulated_transit
-    from .results import plot_traditional_design
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, "default.csv")
-    DF:pd.DataFrame =cargar_materiales(csv_path)
-    #Toca importarlo relativo cuando se importa el modulo

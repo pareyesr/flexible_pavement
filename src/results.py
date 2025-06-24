@@ -2,19 +2,15 @@
 #TODO grafica de demanda vs capacidad. SN vs trafico proyc vs simulado.
 import numpy as np
 import pandas as pd
-from Logica import *
 import matplotlib.pyplot as plt
 
-def calculate_sn_projected(acumulated:np.array,params:dict):
-    """
-    transit: array with acumulated traffic
-    params: dictionary with all the parameters
-    return: array with projected SN
-    """
-    sn_projected = np.zeros(len(acumulated))
-    for i in range(len(acumulated)):
-        sn_projected[i] = solve_sn(params["Reliavility"], params["Standard_Deviation"], params["Delta_PSI"], params["Mr"],acumulated[i])
-    return sn_projected
+# Import functions based on how this module is being used
+try:
+    # Try relative imports first (when imported as a module)
+    from .Logica import *
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    from Logica import *
 
 def plot_simulated_function(params:dict):
     """
@@ -157,23 +153,34 @@ def plot_simulated_transit(params:dict):
     
     # Plot cumulative traffic (log scale)
     # Ensure no zero or negative values for log scale
-    min_cum_plot = np.maximum(min_cum, 1e-10)  # Set minimum value to avoid log(0)
-    ax2.fill_between(time_periods, min_cum_plot, max_cum, 
-                    alpha=0.2, color='lightblue', label='Min-Max Range')
+    min_cum_safe = np.maximum(min_cum, 1)  # Use 1 instead of 1e-10 for better visibility
+    max_cum_safe = np.maximum(max_cum, 1)  # Ensure max is also positive
     
+    # Plot the fill_between first (so it appears behind other elements)
+    ax2.fill_between(time_periods, min_cum_safe, max_cum_safe, 
+                    alpha=0.3, color='lightblue', label='Min-Max Range')
+    
+    # Plot individual simulations
     for i, idx in enumerate(random_indices):
-        ax2.plot(time_periods, cum_res[idx], alpha=0.7, linewidth=0.8, 
+        cum_safe = np.maximum(cum_res[idx], 1)  # Ensure no zero values
+        ax2.plot(time_periods, cum_safe, alpha=0.6, linewidth=0.8, 
                 label=f'Simulation {idx+1}' if i < 5 else "_nolegend_")
     
-    ax2.plot(time_periods, mean_cum, 'k-', linewidth=2, label='Mean')
+    # Plot mean last (so it appears on top)
+    mean_cum_safe = np.maximum(mean_cum, 1)
+    ax2.plot(time_periods, mean_cum_safe, 'r-', linewidth=3, label='Mean')
+    
     ax2.set_xlabel('Time Period (months)')
     ax2.set_ylabel('Cumulative Traffic')
     ax2.set_title('Cumulative Traffic (Log Scale)')
     ax2.legend()
     ax2.grid(True, linestyle='--', alpha=0.7)
     ax2.set_yscale('log')
-    # Set y-axis limits to ensure visibility of the range
-    ax2.set_ylim(min_cum_plot.min(), max_cum.max() * 1.1)
+    
+    # Set y-axis limits with proper margin for log scale
+    y_min = max(min_cum_safe.min() * 0.8, 1)
+    y_max = max_cum_safe.max() * 1.2
+    ax2.set_ylim(y_min, y_max)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
     
     plt.tight_layout()
@@ -210,13 +217,27 @@ def plot_traditional_design(params:dict, DF):
     # Get design results
     dis_sect, sn_design, m = traditional_design(params, DF)
     
-    # Calculate monthly traffic using the growth function
-    monthly_traffic = np.zeros(params['n'])
-    for i in range(params['n']):
-        monthly_traffic[i] = params['mu_function'](i) * params['TPD'] * params['vc'] * params['cd']
+    # Use same logic as traditional_design function from Logica.py
+    initial_monthly_trips = params['TPD'] * 365 / 12 * params['vc'] * params['cd']
     
-    # Calculate accumulated traffic
-    acumulated_traffic = np.cumsum(monthly_traffic)
+    # Generate monthly traffic using growth rates (same as make_simulated_transit)
+    monthly_traffic = np.zeros(params['n'])
+    for month in range(params['n']):
+        growth_rate = params['mu_function'](month)
+        monthly_traffic[month] = initial_monthly_trips * (1 + growth_rate)
+    
+    # Convert monthly traffic to annual traffic
+    mean_traffic = np.zeros(params['n']//12)
+    for i in range(params['n']//12):
+        annual_traffic = 0
+        for j in range(12):
+            month_idx = i * 12 + j
+            if month_idx < len(monthly_traffic):
+                annual_traffic += monthly_traffic[month_idx]
+        mean_traffic[i] = annual_traffic
+    
+    # Calculate accumulated traffic from annual mean_traffic
+    acumulated_traffic = np.cumsum(mean_traffic)
     
     # Print design information
     print(dis_sect.info())
@@ -225,8 +246,8 @@ def plot_traditional_design(params:dict, DF):
     # Calculate projected SN over time
     sn_projected = calculate_sn_projected(acumulated_traffic, params)
     
-    # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    # Create figure with three subplots
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
     
     # Plot 1: Monthly Traffic progression
     months = np.arange(len(monthly_traffic))
@@ -238,24 +259,45 @@ def plot_traditional_design(params:dict, DF):
     ax1.legend()
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
     
-    # Plot 2: SN capacity vs projected SN
-    ax2.plot(months, [sn_design] * len(months), 'r--', label='Design SN')
-    ax2.plot(months, sn_projected, 'g-', label='Projected SN')
-    ax2.set_xlabel('Months')
-    ax2.set_ylabel('Structural Number (SN)')
-    ax2.set_title('SN Capacity vs Projected SN Over Time')
+    # Plot 2: Annual Traffic and Cumulative Traffic
+    years = np.arange(len(mean_traffic))
+    ax2_twin = ax2.twinx()
+    
+    line1 = ax2.bar(years, mean_traffic, alpha=0.6, color='lightblue', label='Annual Traffic')
+    line2 = ax2_twin.plot(years, acumulated_traffic, 'r-', linewidth=2, label='Cumulative Traffic')
+    
+    ax2.set_xlabel('Years')
+    ax2.set_ylabel('Annual Traffic (ESAL)', color='blue')
+    ax2_twin.set_ylabel('Cumulative Traffic (ESAL)', color='red')
+    ax2.set_title('Annual and Cumulative Traffic Progression')
     ax2.grid(True)
-    ax2.legend()
+    
+    # Combine legends
+    lines1, labels1 = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2_twin.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+    ax2_twin.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+    
+    # Plot 3: SN capacity vs projected SN
+    ax3.plot(years, [sn_design] * len(years), 'r--', linewidth=2, label='Design SN')
+    ax3.plot(years, sn_projected, 'g-', linewidth=2, label='Projected SN')
+    ax3.set_xlabel('Years')
+    ax3.set_ylabel('Structural Number (SN)')
+    ax3.set_title('SN Capacity vs Projected SN Over Time')
+    ax3.grid(True)
+    ax3.legend()
     
     # Add a shaded area where projected SN exceeds design SN
     if np.any(sn_projected > sn_design):
         exceed_mask = sn_projected > sn_design
-        ax2.fill_between(months, sn_design, sn_projected, 
+        ax3.fill_between(years, sn_design, sn_projected, 
                         where=exceed_mask, color='red', alpha=0.3,
                         label='SN Exceedance')
-        ax2.legend()
+        ax3.legend()
     
     # Adjust layout
     plt.tight_layout()
     
-    return fig, (ax1, ax2)
+    return fig, (ax1, ax2, ax3)
