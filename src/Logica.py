@@ -318,10 +318,8 @@ def cargar_materiales(ruta:str)->pd.DataFrame:
 
 def resolve(material_table, sect, goal_sn, unmodify_bottom_layers=0,grade=0.0, embankment_cost=0.0, excavation_cost=0.0):
     """
-    Modify an existing section by adjusting the top n layers to achieve the target SN.
-    If current SN is higher than target, it will reduce thicknesses to get as close as possible.
-    If current SN is lower than target, it will increase thicknesses and add layers if needed.
-    
+    Modify an existing section by adjusting the top layers to achieve the target SN without modifying the bottom layers.
+
     Args:
         material_table: DataFrame with material properties
         sect: Existing section to modify
