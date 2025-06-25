@@ -480,7 +480,7 @@ def calculate_sn_projected(acumulated:np.array,params:dict):
     for i in range(len(sn_projected)):
         sn_projected[i] -= start_value * (len(sn_projected)-i-1)/(len(sn_projected)-1)
     return sn_projected
-def save_design(section:Section,sim:int,period:int,startover:bool=False):
+def save_design(section:Section,sim:int,period:int,startover:float=0):
     sect_info = {'simulation':sim,'period':period,'total_sn':section.get_sn(),'total_cost':section.totalCost,'layer_materials':[],'layer_thicknesses':[],'layer_sns':[]}
     # Store layer information
     materials = []
@@ -538,7 +538,7 @@ def evaluate_flexibility(params:dict,DF)->np.array:
     
     # Store initial design information for all simulations
     for sim in range(params['size']):
-        section_info.append(save_design(step_design, sim, 0))
+        section_info.append(save_design(step_design, sim, 0,startover=base_sn))
     
         # Step 6: Process each simulation
     for sim in range(params['size']):
@@ -558,7 +558,7 @@ def evaluate_flexibility(params:dict,DF)->np.array:
             # Create array of required top SN (subtracting current base SN)
             
             # Use calculate_break to find when top layers fail
-            n_break = calculate_break(sn_projected, top_sn+reduce_base_step, 
+            n_break = calculate_break(sn_projected, (top_sn+reduce_base_step)*params['factor'], 
                                     params['Reliavility'], params['Standard_Deviation'], 
                                     params['Delta_PSI'], params['Mr'])
             
@@ -588,7 +588,7 @@ def evaluate_flexibility(params:dict,DF)->np.array:
                                      for layer in current_step_design[num_top_layers:]])
                 actual_achieved_sn = section_sn(current_step_design)
                 base_sn = len(current_step_design)-num_top_layers
-                section_info.append(save_design(current_step_design, sim, n_break,startover=True))
+                section_info.append(save_design(current_step_design, sim, n_break,startover=0))
             else:
                 current_base_sn -= reduce_base_step
                 # Use resolve() to modify top layers only
@@ -596,7 +596,7 @@ def evaluate_flexibility(params:dict,DF)->np.array:
                 current_step_design, actual_achieved_sn = resolve(DF, deepcopy(current_step_design), 
                                                                 required_top_sn+current_base_sn, len(current_step_design)-num_top_layers, 
                                                                 params['grade'], params['emb'], params['excv'])
-                section_info.append(save_design(current_step_design, sim, n_break,startover=False))
+                section_info.append(save_design(current_step_design, sim, n_break,startover=current_base_sn))
             
             top_sn += actual_achieved_sn-base_sn
             # Update previous break position

@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 import os
+import sys
 import numpy as np
 import pandas as pd
 from tkinter import messagebox
 from tkinter import filedialog
 from scipy.optimize import curve_fit
 import tkinter.font as tkfont
+import importlib.util
 
 # Import matplotlib components with error handling
 try:
@@ -286,134 +288,161 @@ class App:
             self.solution_index.set(0)
             sect = solutions[0]
             
-        # Calculate flexibility or load from file
-        ruta_arr = os.path.join(script_dir, str(self.arr_ruta.get()) + ".csv")
+        # Calculate flexibility or load from file using results.py functions
+        base_filename = str(self.arr_ruta.get())
         result = None
-        # Check if results file exists
-        if os.path.exists(ruta_arr):
+        accumulated_sn_df = None
+        
+        # Try to load existing results using the new function from results.py
+        try:
+            # Ensure script_dir is in the path
+            if script_dir not in sys.path:
+                sys.path.append(script_dir)
+            
+            # Try to import the functions we need from results.py
+            results_spec = importlib.util.spec_from_file_location("results", os.path.join(script_dir, "results.py"))
+            results_module = importlib.util.module_from_spec(results_spec)
+            results_spec.loader.exec_module(results_module)
+            
+            result, accumulated_sn_df = results_module.read_flexibility_csvs(base_filename, script_dir)
+            print(f"Successfully loaded existing simulation results using results.py")
+            
+        except Exception as e:
+            # If files don't exist or can't be loaded, run new simulation
+            print(f"Could not load existing results ({str(e)}), running new simulation...")
+            
+            # Update parameters dictionary using centralized function
+            self.dict_params = create_params_dict(self, 
+                                                include_traffic=True,
+                                                include_design=True, 
+                                                include_simulation=True,
+                                                include_flexible=True,
+                                                include_functions=True)
+            
+            # Add specific parameters for this operation
+            self.dict_params.update({
+                "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
+                "sect": sect,
+            })
+            
+            # Run evaluate_flexibility to generate the results
             try:
-                # Try to read existing results
-                results_df = pd.read_csv(ruta_arr)
-                # Use the loaded DataFrame directly instead of recreating
-                result = results_df
-                print(f"Loaded {len(results_df)} simulation results from {ruta_arr}")
-            except Exception as e:
-                show_copyable_message("Warning", f"Failed to read results from {ruta_arr}:\n{str(e)}")
-                result = None
-        else:
-            # If no results exist or failed to read, run simulation
-            if result is None:
-                # Update parameters dictionary using centralized function
-                self.dict_params = create_params_dict(self, 
-                                                    include_traffic=True,
-                                                    include_design=True, 
-                                                    include_simulation=True,
-                                                    include_flexible=True,
-                                                    include_functions=True)
+                result, self.acumulated = evaluate_flexibility(self.dict_params, DF)
                 
-                # Add specific parameters for this operation
-                self.dict_params.update({
-                    "sn_design": self.calcular_sn() if "sn_design" not in self.dict_params.keys() else self.dict_params['sn_design'],
-                    "sect": sect,
-                })
-                
-                result, self.acumulated = evaluate_flexibility(self.dict_params,DF)
                 # Save results
-                try:
-                    # Save the full results DataFrame directly
-                    result.to_csv(ruta_arr, index=False)
-                    pd.DataFrame(self.acumulated).to_csv(ruta_arr + "_acumulated.csv", index=False)
-                except Exception as e:
-                    show_copyable_message('Warning', f'Failed to save results to {ruta_arr}: {str(e)}')
-            else:
-                # This else block seems unreachable now, but keeping for safety
-                try:
-                    results_df = pd.read_csv(ruta_arr)
-                    result = results_df
-                except Exception as e:
-                    show_copyable_message("Warning", f"Failed to read results from {ruta_arr}:\n{str(e)}")
-                    result = None
+                ruta_arr = os.path.join(script_dir, base_filename + ".csv")
+                result.to_csv(ruta_arr, index=False)
+                pd.DataFrame(self.acumulated).to_csv(ruta_arr + "_acumulated.csv", index=False)
+                
+                # Create accumulated_sn_df from the saved data
+                accumulated_sn_df = pd.DataFrame(self.acumulated)
+                
+                print(f"New simulation completed and saved to {base_filename}")
+                
+            except Exception as eval_error:
+                show_copyable_message('Error', f'Failed to run simulation: {str(eval_error)}')
+                return
         
         # Create new tab for results
         rand_tab = ttk.Frame(notebook)
-        notebook.add(rand_tab, text='Random Results')
-            
-        # Create figure with two subplots
-        fig = Figure(figsize=(12, 8))
-        ax1 = fig.add_subplot(211)  # Top subplot for SN vs Time
-        ax2 = fig.add_subplot(212)  # Bottom subplot for Accumulated Traffic
+        notebook.add(rand_tab, text='Flexible Design Results')
         
-        # Plot SN vs Time for each simulation
-        # Check if result is the DataFrame format with columns or the matrix format
-        if hasattr(result, 'columns') and 'simulation' in result.columns:
-            # DataFrame format with simulation column
-            for sim in range(min(10, result['simulation'].max() + 1)):
-                # Get all periods for this simulation
-                sim_data = result[result['simulation'] == sim]
-                periods = sim_data['period'].values
-                sn_values = sim_data['total_sn'].values
-                
-                ax1.plot(periods, sn_values, alpha=0.5, label=f'Sim {sim+1}')
-        else:
-            # Matrix format or other structure - use alternative approach
+        # Create a frame for controls
+        controls_frame = ttk.Frame(rand_tab)
+        controls_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        # Simulation selector
+        ttk.Label(controls_frame, text="Simulation:").pack(side=tk.LEFT, padx=5)
+        self.sim_selector = ttk.Combobox(controls_frame, width=10, state="readonly")
+        available_sims = result['simulation'].unique() if 'simulation' in result.columns else [0]
+        self.sim_selector['values'] = list(available_sims)
+        self.sim_selector.set(available_sims[0])
+        self.sim_selector.pack(side=tk.LEFT, padx=5)
+        
+        # Display options
+        self.show_envelope_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(controls_frame, text="Show Envelope", 
+                       variable=self.show_envelope_var).pack(side=tk.LEFT, padx=10)
+        
+        self.show_all_sims_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls_frame, text="Show All Simulations", 
+                       variable=self.show_all_sims_var).pack(side=tk.LEFT, padx=10)
+        
+        # Plot type selector
+        ttk.Label(controls_frame, text="Plot Type:").pack(side=tk.LEFT, padx=(20, 5))
+        self.plot_type_var = tk.StringVar(value="single")
+        plot_type_combo = ttk.Combobox(controls_frame, textvariable=self.plot_type_var, 
+                                     values=["single", "comparison"], state="readonly", width=12)
+        plot_type_combo.pack(side=tk.LEFT, padx=5)
+        
+        # Update button
+        def update_plot():
+            # Clear the current canvas
+            for widget in plot_frame.winfo_children():
+                widget.destroy()
+            
             try:
-                # If result is the original DataFrame from evaluate_flexibility
-                for sim in range(min(10, len(result))):
-                    if hasattr(result, 'iloc'):
-                        sim_data = result.iloc[sim]
-                        if hasattr(sim_data, 'period'):
-                            periods = sim_data['period'].values if hasattr(sim_data['period'], 'values') else [0]
-                            sn_values = sim_data['total_sn'].values if hasattr(sim_data['total_sn'], 'values') else [0]
-                        else:
-                            # Fallback - create dummy data for display
-                            periods = list(range(10))
-                            sn_values = [3.0 + sim * 0.1] * 10
-                    else:
-                        # Fallback - create dummy data for display
-                        periods = list(range(10))
-                        sn_values = [3.0 + sim * 0.1] * 10
-                    
-                    ax1.plot(periods, sn_values, alpha=0.5, label=f'Sim {sim+1}')
+                # Ensure the import can find the results module
+                if script_dir not in sys.path:
+                    sys.path.append(script_dir)
+                
+                # Import plotting functions from results.py
+                results_spec = importlib.util.spec_from_file_location("results", os.path.join(script_dir, "results.py"))
+                results_module = importlib.util.module_from_spec(results_spec)
+                results_spec.loader.exec_module(results_module)
+                
+                if self.plot_type_var.get() == "single":
+                    # Single simulation plot with options
+                    sim_id = int(self.sim_selector.get())
+                    fig, ax = results_module.plot_flexible_design_sn(
+                        result, accumulated_sn_df,
+                        simulation_id=sim_id,
+                        show_envelope=self.show_envelope_var.get(),
+                        show_all_sims=self.show_all_sims_var.get(),
+                        max_sims_display=5
+                    )
+                else:
+                    # Multiple simulations comparison
+                    selected_sims = available_sims[:min(4, len(available_sims))]
+                    fig, axes = results_module.plot_multiple_simulations_comparison(
+                        result, accumulated_sn_df,
+                        simulation_ids=selected_sims,
+                        max_sims=4
+                    )
+                
+                # Create canvas and toolbar
+                canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+                canvas.draw()
+                
+                toolbar = NavigationToolbar2Tk(canvas, plot_frame)
+                toolbar.update()
+                
+                # Pack widgets
+                canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+                toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+                
             except Exception as e:
-                # Ultimate fallback - show placeholder message
-                ax1.text(0.5, 0.5, f'Data visualization error: {str(e)}', 
-                        transform=ax1.transAxes, ha='center', va='center')
+                # Fallback to simple plot if advanced plotting fails
+                error_label = ttk.Label(plot_frame, text=f"Plotting error: {str(e)}")
+                error_label.pack(expand=True)
+                show_copyable_message("Plotting Warning", f"Advanced plotting failed: {str(e)}\nUsing fallback display.")
         
-        ax1.set_title('Structural Number (SN) Over Time')
-        ax1.set_xlabel('Time Period')
-        ax1.set_ylabel('SN')
-        ax1.grid(True, linestyle='--', alpha=0.3)
-        ax1.legend()
+        ttk.Button(controls_frame, text="Update Plot", command=update_plot).pack(side=tk.LEFT, padx=10)
         
-        # Plot Accumulated Traffic
-        for i in range(min(10, len(self.acumulated))):  # Plot first 10 simulations
-            ax2.plot(range(len(self.acumulated[i])), self.acumulated[i], 
-                    alpha=0.5, label=f'Sim {i+1}')
+        # Create frame for the plot
+        plot_frame = ttk.Frame(rand_tab)
+        plot_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        ax2.set_title('Accumulated Traffic Over Time')
-        ax2.set_xlabel('Time Period')
-        ax2.set_ylabel('Accumulated Traffic')
-        ax2.grid(True, linestyle='--', alpha=0.3)
-        ax2.legend()
+        # Initial plot
+        update_plot()
         
-        # Adjust layout
-        fig.tight_layout()
-            
-        canvas = FigureCanvasTkAgg(fig, master=rand_tab)
-        canvas.draw()
-            
-        # Add navigation toolbar
-        toolbar = NavigationToolbar2Tk(canvas, rand_tab)
-        toolbar.update()
-            
-        # Pack widgets
-        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        # Bind combobox change events to update plot
+        self.sim_selector.bind('<<ComboboxSelected>>', lambda e: update_plot())
+        plot_type_combo.bind('<<ComboboxSelected>>', lambda e: update_plot())
         
         # Add export to Excel button
         def export_to_excel():
             try:
-                # Save the full results DataFrame directly
                 file_path = filedialog.asksaveasfilename(
                     defaultextension='.xlsx',
                     filetypes=[('Excel files', '*.xlsx')],
@@ -422,13 +451,32 @@ class App:
                 if file_path:
                     with pd.ExcelWriter(file_path) as writer:
                         result.to_excel(writer, sheet_name='Section Results', index=False)
-                        pd.DataFrame(self.acumulated).to_excel(writer, sheet_name='Accumulated Traffic', index=False)
+                        accumulated_sn_df.to_excel(writer, sheet_name='Accumulated SN', index=False)
+                        
+                        # Add summary statistics
+                        if 'simulation' in result.columns:
+                            summary_stats = []
+                            for sim in result['simulation'].unique():
+                                sim_data = result[result['simulation'] == sim]
+                                stats = {
+                                    'Simulation': sim,
+                                    'Total_Interventions': len(sim_data),
+                                    'Total_Cost': sim_data['total_cost'].sum(),
+                                    'Max_SN': sim_data['total_sn'].max(),
+                                    'Complete_Rebuilds': len(sim_data[sim_data['startover'] == 0]),
+                                    'Partial_Rebuilds': len(sim_data[sim_data['startover'] > 0])
+                                }
+                                summary_stats.append(stats)
+                            
+                            summary_df = pd.DataFrame(summary_stats)
+                            summary_df.to_excel(writer, sheet_name='Summary Statistics', index=False)
+                    
                     messagebox.showinfo('Success', 'Results exported successfully!')
             except Exception as e:
                 show_copyable_message('Error', f'Failed to export results: {str(e)}')
         
-        export_btn = ttk.Button(rand_tab, text='Export to Excel', command=export_to_excel)
-        export_btn.pack(side=tk.BOTTOM, pady=5)
+        export_btn = ttk.Button(controls_frame, text='Export to Excel', command=export_to_excel)
+        export_btn.pack(side=tk.RIGHT, padx=10)
             
         # Switch to new tab
         notebook.select(rand_tab)
