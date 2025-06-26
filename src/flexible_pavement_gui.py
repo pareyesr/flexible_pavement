@@ -359,14 +359,8 @@ class App:
         self.sim_selector.set(available_sims[0])
         self.sim_selector.pack(side=tk.LEFT, padx=5)
         
-        # Display options
-        self.show_envelope_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(controls_frame, text="Show Envelope", 
-                       variable=self.show_envelope_var).pack(side=tk.LEFT, padx=10)
-        
-        self.show_all_sims_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(controls_frame, text="Show All Simulations", 
-                       variable=self.show_all_sims_var).pack(side=tk.LEFT, padx=10)
+        # Display options (only for comparison plots)
+        # Note: plot_sn_progression doesn't support envelope/all_sims options
         
         # Plot type selector
         ttk.Label(controls_frame, text="Plot Type:").pack(side=tk.LEFT, padx=(20, 5))
@@ -392,15 +386,12 @@ class App:
                 results_spec.loader.exec_module(results_module)
                 
                 if self.plot_type_var.get() == "single":
-                    # Single simulation plot with options
+                    # Single simulation plot using plot_sn_progression
                     sim_id = int(self.sim_selector.get())
-                    fig, ax = results_module.plot_flexible_design_sn(
-                        result, accumulated_sn_df,
-                        simulation_id=sim_id,
-                        show_envelope=self.show_envelope_var.get(),
-                        show_all_sims=self.show_all_sims_var.get(),
-                        max_sims_display=5
-                    )
+                    
+                    # Call plot_sn_progression with return_fig=True to get the figure
+                    fig = results_module.plot_sn_progression(result, accumulated_sn_df, sim_id, return_fig=True)
+                    
                 else:
                     # Multiple simulations comparison
                     selected_sims = available_sims[:min(4, len(available_sims))]
@@ -440,6 +431,57 @@ class App:
         self.sim_selector.bind('<<ComboboxSelected>>', lambda e: update_plot())
         plot_type_combo.bind('<<ComboboxSelected>>', lambda e: update_plot())
         
+        # Add Traditional vs Simulated Analysis button
+        def run_traditional_analysis():
+            try:
+                # Create or update the parameters dictionary using centralized function
+                analysis_params = create_params_dict(self, 
+                                                   include_traffic=True,
+                                                   include_design=True, 
+                                                   include_simulation=True,
+                                                   include_flexible=False,
+                                                   include_functions=True)
+                
+                # Use the accumulated data from the simulations
+                if hasattr(self, 'acumulated') and self.acumulated is not None:
+                    accumulated_data = np.array(self.acumulated)
+                else:
+                    messagebox.showerror("Error", 
+                                       "No accumulated traffic data available. Please run a simulation first.\n"
+                                       "Go to 'Parámetros de Tráfico' tab and click 'Simular Tráfico'.")
+                    return
+                
+                # Import and run the analysis
+                if script_dir not in sys.path:
+                    sys.path.append(script_dir)
+                
+                results_spec = importlib.util.spec_from_file_location("results", os.path.join(script_dir, "results.py"))
+                results_module = importlib.util.module_from_spec(results_spec)
+                results_spec.loader.exec_module(results_module)
+                
+                # Run analysis
+                analysis_results = results_module.analyze_traditional_vs_simulated(
+                    analysis_params, accumulated_data, return_fig=False
+                )
+                
+                messagebox.showinfo("Analysis Complete", 
+                                  f"Traditional vs Simulated Analysis completed!\n\n"
+                                  f"Key Results:\n"
+                                  f"• Average underestimation: {np.mean(list(analysis_results['underestimation_frequency'].values())):.1f}%\n"
+                                  f"• Average overestimation: {np.mean(list(analysis_results['overestimation_frequency'].values())):.1f}%\n"
+                                  f"• Average RMSE: {np.mean(list(analysis_results['rmse'].values())):.1f}%\n\n"
+                                  f"See console output for detailed statistics.")
+                
+            except Exception as e:
+                messagebox.showerror("Analysis Error", f"Error running traditional analysis:\n{str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Add the analysis button to controls
+        analysis_btn = ttk.Button(controls_frame, text='Traditional vs Simulated Analysis', 
+                                command=run_traditional_analysis)
+        analysis_btn.pack(side=tk.RIGHT, padx=10)
+
         # Add export to Excel button
         def export_to_excel():
             try:

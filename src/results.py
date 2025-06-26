@@ -628,3 +628,333 @@ def plot_multiple_simulations_comparison(results_df: pd.DataFrame, accumulated_s
     
     plt.tight_layout()
     return fig, axes
+
+def plot_sn_progression(datos_res, datos_res_accumulated, simulation_id, return_fig=False):
+    """
+    Plots the accumulated SN and design capacity progression for a specific simulation.
+    
+    Parameters:
+        datos_res (pd.DataFrame): DataFrame from 'datos_res.csv' with redesign events.
+        datos_res_accumulated (pd.DataFrame): DataFrame with accumulated SN over time.
+                                            Format: simulations as rows, time periods as columns
+        simulation_id (int): ID of the simulation to plot.
+        return_fig (bool): If True, returns the figure instead of showing it.
+    
+    Returns:
+        matplotlib.figure.Figure: The created figure (if return_fig=True).
+    """
+    # Filter redesign events for the specified simulation
+    redesign_events = datos_res[datos_res['simulation'] == simulation_id].copy()
+    
+    # Sort redesign events by period first
+    redesign_events = redesign_events.sort_values('period').reset_index(drop=True)
+    
+    # Use top_sn and startover columns directly from the CSV data
+    # design_capacity = top_sn (capacity of top layers)
+    # total_capacity = startover + top_sn (total structural capacity)
+    redesign_events['design_capacity'] = redesign_events['top_sn']
+    redesign_events['total_capacity'] = redesign_events['startover'] + redesign_events['top_sn']
+    
+    # Get accumulated SN data for the specific simulation
+    # accumulated_sn_df structure: rows=simulations, columns=time_periods
+    if simulation_id >= len(datos_res_accumulated):
+        raise ValueError(f"Simulation {simulation_id} not found. Available simulations: 0 to {len(datos_res_accumulated)-1}")
+    
+    accumulated_sn_values = datos_res_accumulated.iloc[simulation_id].values
+    time_periods = np.arange(len(accumulated_sn_values))
+    
+    # Create figure and plot accumulated SN
+    fig = plt.figure(figsize=(12, 6))
+    plt.plot(time_periods, accumulated_sn_values, 
+             label='Accumulated SN Demand', color='blue', linewidth=2)
+    
+    # Plot design capacity as a step function
+    if not redesign_events.empty:
+        periods = redesign_events['period'].tolist()
+        design_capacities = redesign_events['design_capacity'].tolist()  # top_sn values
+        total_capacities = redesign_events['total_capacity'].tolist()     # startover + top_sn values
+        
+        # Create step function for design capacity (top_sn)
+        capacity_timeline = np.zeros(len(time_periods))
+        
+        for i, (period, capacity) in enumerate(zip(periods, design_capacities)):
+            # Set capacity from this period to the next (or end)
+            start_period = int(period)
+            end_period = len(time_periods)
+            
+            if i < len(periods) - 1:
+                end_period = int(periods[i + 1])
+            
+            if start_period < len(capacity_timeline):
+                capacity_timeline[start_period:end_period] = capacity
+        
+        plt.plot(time_periods, capacity_timeline, 
+                 label='Design Capacity (Top Layers)', color='red', linewidth=2, linestyle='--')
+        
+        # Create step function for total capacity (startover + top_sn)
+        total_capacity_timeline = np.zeros(len(time_periods))
+        
+        for i, (period, total_capacity) in enumerate(zip(periods, total_capacities)):
+            # Set total capacity from this period to the next (or end)
+            start_period = int(period)
+            end_period = len(time_periods)
+            
+            if i < len(periods) - 1:
+                end_period = int(periods[i + 1])
+            
+            if start_period < len(total_capacity_timeline):
+                total_capacity_timeline[start_period:end_period] = total_capacity
+        
+        plt.plot(time_periods, total_capacity_timeline, 
+                 label='Total SN Capacity (Base + Top)', color='purple', linewidth=2, linestyle='-')
+        
+        # Add vertical lines at redesign events
+        for i, period in enumerate(periods):
+            label = 'Redesign Event' if i == 0 else None
+            plt.axvline(x=period, color='green', linestyle='--', alpha=0.7, label=label)
+            
+        # Add shaded area where demand exceeds total capacity
+        exceed_mask = accumulated_sn_values > total_capacity_timeline
+        if np.any(exceed_mask):
+            plt.fill_between(time_periods, total_capacity_timeline, accumulated_sn_values,
+                           where=exceed_mask, color='red', alpha=0.3, 
+                           label='SN Total Capacity Exceeded')
+    
+    # Add labels and title
+    plt.xlabel('Time Period (months)')
+    plt.ylabel('Structural Number (SN)')
+    plt.title(f'SN Progression and Redesign Events (Simulation {simulation_id})')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    # Add secondary x-axis in years
+    ax2 = plt.gca().twiny()
+    ax2.set_xlim(plt.gca().get_xlim())
+    year_ticks = np.arange(0, len(time_periods), 12)
+    ax2.set_xticks(year_ticks)
+    ax2.set_xticklabels([f'{t//12}' for t in year_ticks])
+    ax2.set_xlabel('Time (years)')
+    
+    plt.tight_layout()
+    
+    if return_fig:
+        return fig
+    else:
+        plt.show()
+
+def analyze_traditional_vs_simulated(params: dict, accumulated_traffic_data: np.ndarray, 
+                                   evaluation_periods: list = None, return_fig: bool = False):
+    """
+    Analyze how well the traditional design approach predicts traffic growth compared to simulated data.
+    Shows frequency of underestimation vs overestimation.
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing design parameters (TPD, vc, cd, n, mu_function, etc.)
+    accumulated_traffic_data : np.ndarray
+        2D array with accumulated traffic data (simulations x time_periods)
+    evaluation_periods : list, optional
+        List of time periods (in months) to evaluate. If None, uses [60, 120, 180, 240, 300, 360]
+    return_fig : bool
+        If True, returns the figure instead of showing it
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing analysis results and optionally the figure
+    """
+    
+    if evaluation_periods is None:
+        evaluation_periods = [60, 120, 180, 240, 300, min(360, params['n']-1)]
+    
+    # Remove periods that exceed the simulation length
+    evaluation_periods = [p for p in evaluation_periods if p < params['n']]
+    
+    # Calculate traditional design prediction using linear growth rate
+    initial_monthly_trips = params['TPD'] * 365 / 12 * params['vc'] * params['cd']
+    
+    # Generate traditional prediction using mean growth function
+    traditional_monthly_traffic = np.zeros(params['n'])
+    for month in range(params['n']):
+        growth_rate = params['mu_function'](month)
+        traditional_monthly_traffic[month] = initial_monthly_trips * (1 + growth_rate)
+    
+    # Calculate traditional accumulated traffic
+    traditional_accumulated = np.cumsum(traditional_monthly_traffic)
+    
+    # Alternatively, use the W18_i_regression approach for comparison
+    # Convert to annual and calculate regression-based growth rate
+    annual_periods = params['n'] // 12
+    traditional_annual = np.zeros(annual_periods)
+    for year in range(annual_periods):
+        year_traffic = 0
+        for month in range(12):
+            month_idx = year * 12 + month
+            if month_idx < len(traditional_monthly_traffic):
+                year_traffic += traditional_monthly_traffic[month_idx]
+        traditional_annual[year] = year_traffic
+    
+    # Calculate average growth rate from traditional approach
+    if len(traditional_annual) > 1:
+        traditional_growth_rate = W18_i_regression(traditional_annual)
+    else:
+        traditional_growth_rate = 0.047  # Default
+    
+    # Create W18-based prediction
+    w18_prediction = np.zeros(params['n'])
+    for month in range(params['n']):
+        year_fraction = month / 12.0
+        annual_traffic = pred_W18(params['TPD'], params['vc'], params['cd'], traditional_growth_rate, year_fraction)
+        w18_prediction[month] = annual_traffic
+    
+    # Analysis results storage
+    results = {
+        'evaluation_periods': evaluation_periods,
+        'underestimation_frequency': {},
+        'overestimation_frequency': {},
+        'mean_error': {},
+        'rmse': {},
+        'prediction_errors': {}
+    }
+    
+    # Create figure with subplots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+    
+    # Plot 1: Sample trajectories comparison
+    n_samples = min(10, accumulated_traffic_data.shape[0])
+    sample_indices = np.random.choice(accumulated_traffic_data.shape[0], n_samples, replace=False)
+    
+    time_periods = np.arange(params['n'])
+    
+    for i, idx in enumerate(sample_indices):
+        alpha = 0.3 if i > 0 else 0.8
+        linewidth = 0.8 if i > 0 else 2
+        label = 'Simulated Traffic' if i == 0 else None
+        ax1.plot(time_periods, accumulated_traffic_data[idx], 'b-', alpha=alpha, 
+                linewidth=linewidth, label=label)
+    
+    ax1.plot(time_periods, traditional_accumulated, 'r-', linewidth=3, 
+            label='Traditional Prediction (μ function)')
+    ax1.plot(time_periods, w18_prediction, 'g--', linewidth=2, 
+            label='W18 Regression Prediction')
+    
+    ax1.set_xlabel('Time (months)')
+    ax1.set_ylabel('Accumulated Traffic')
+    ax1.set_title('Traditional vs Simulated Traffic Trajectories')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot 2: Error distribution at specific periods
+    colors = plt.cm.viridis(np.linspace(0, 1, len(evaluation_periods)))
+    
+    for i, period in enumerate(evaluation_periods):
+        if period >= accumulated_traffic_data.shape[1]:
+            continue
+            
+        simulated_values = accumulated_traffic_data[:, period]
+        traditional_value = traditional_accumulated[period]
+        w18_value = w18_prediction[period]
+        
+        # Calculate errors
+        traditional_errors = (simulated_values - traditional_value) / traditional_value * 100
+        w18_errors = (simulated_values - w18_value) / w18_value * 100
+        
+        # Store results
+        results['underestimation_frequency'][period] = np.sum(traditional_errors > 0) / len(traditional_errors) * 100
+        results['overestimation_frequency'][period] = np.sum(traditional_errors < 0) / len(traditional_errors) * 100
+        results['mean_error'][period] = np.mean(traditional_errors)
+        results['rmse'][period] = np.sqrt(np.mean(traditional_errors**2))
+        results['prediction_errors'][period] = traditional_errors
+        
+        # Plot error distribution
+        ax2.hist(traditional_errors, bins=30, alpha=0.6, color=colors[i], 
+                label=f'Month {period}', density=True)
+    
+    ax2.axvline(x=0, color='red', linestyle='--', alpha=0.7, label='Perfect Prediction')
+    ax2.set_xlabel('Prediction Error (%)')
+    ax2.set_ylabel('Density')
+    ax2.set_title('Distribution of Prediction Errors\n(Positive = Underestimation)')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # Plot 3: Frequency of under/over estimation over time
+    periods_list = list(results['underestimation_frequency'].keys())
+    under_freq = [results['underestimation_frequency'][p] for p in periods_list]
+    over_freq = [results['overestimation_frequency'][p] for p in periods_list]
+    
+    x_pos = np.arange(len(periods_list))
+    width = 0.35
+    
+    ax3.bar(x_pos - width/2, under_freq, width, label='Underestimation', color='red', alpha=0.7)
+    ax3.bar(x_pos + width/2, over_freq, width, label='Overestimation', color='blue', alpha=0.7)
+    
+    ax3.set_xlabel('Evaluation Period (months)')
+    ax3.set_ylabel('Frequency (%)')
+    ax3.set_title('Frequency of Under vs Over Estimation')
+    ax3.set_xticks(x_pos)
+    ax3.set_xticklabels([str(p) for p in periods_list])
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    # Plot 4: RMSE and Mean Error over time
+    rmse_values = [results['rmse'][p] for p in periods_list]
+    mean_errors = [results['mean_error'][p] for p in periods_list]
+    
+    ax4_twin = ax4.twinx()
+    
+    line1 = ax4.plot(periods_list, rmse_values, 'bo-', label='RMSE', linewidth=2, markersize=6)
+    line2 = ax4_twin.plot(periods_list, mean_errors, 'ro-', label='Mean Error', linewidth=2, markersize=6)
+    
+    ax4.set_xlabel('Evaluation Period (months)')
+    ax4.set_ylabel('RMSE (%)', color='blue')
+    ax4_twin.set_ylabel('Mean Error (%)', color='red')
+    ax4.set_title('Prediction Accuracy Metrics Over Time')
+    ax4.grid(True, alpha=0.3)
+    
+    # Combine legends
+    lines1, labels1 = ax4.get_legend_handles_labels()
+    lines2, labels2 = ax4_twin.get_legend_handles_labels()
+    ax4.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    plt.tight_layout()
+    
+    # Print summary statistics
+    print("=" * 60)
+    print("TRADITIONAL DESIGN vs SIMULATED TRAFFIC ANALYSIS")
+    print("=" * 60)
+    
+    for period in evaluation_periods:
+        if period in results['underestimation_frequency']:
+            print(f"\nPeriod {period} months ({period//12:.1f} years):")
+            print(f"  Underestimation frequency: {results['underestimation_frequency'][period]:.1f}%")
+            print(f"  Overestimation frequency:  {results['overestimation_frequency'][period]:.1f}%")
+            print(f"  Mean prediction error:     {results['mean_error'][period]:+.1f}%")
+            print(f"  RMSE:                      {results['rmse'][period]:.1f}%")
+    
+    # Overall assessment
+    overall_under = np.mean(list(results['underestimation_frequency'].values()))
+    overall_over = np.mean(list(results['overestimation_frequency'].values()))
+    overall_rmse = np.mean(list(results['rmse'].values()))
+    
+    print(f"\nOVERALL ASSESSMENT:")
+    print(f"  Average underestimation frequency: {overall_under:.1f}%")
+    print(f"  Average overestimation frequency:  {overall_over:.1f}%")
+    print(f"  Average RMSE:                      {overall_rmse:.1f}%")
+    
+    if overall_under > overall_over:
+        bias = "CONSERVATIVE (tends to underestimate)"
+    elif overall_over > overall_under:
+        bias = "AGGRESSIVE (tends to overestimate)"
+    else:
+        bias = "BALANCED"
+    
+    print(f"  Design bias:                       {bias}")
+    print("=" * 60)
+    
+    if return_fig:
+        results['figure'] = fig
+        return results
+    else:
+        plt.show()
+        return results

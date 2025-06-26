@@ -1,2 +1,3 @@
 /env
-src/datos_p1.npy
+src/datos_*
+/src/__pycache__
