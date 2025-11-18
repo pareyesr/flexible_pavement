@@ -11,20 +11,21 @@ from copy import deepcopy
 
 from scipy.stats import norm
 
-def pred_W18(tpd:int,vc:float,cd:float,i:float,n:int):
+def pred_W18(tpd:int,vc:float,cd:float,i:float,n:int,cam:float=1.0):
     """
     TPD:int = Trafico promedio diario\n
     vc:float =Vehiculos comerciales(B+C) \n
     cd:float = %trafico carril de diseño \n
     i:float =indice de crecimiento anual \n
     n:int =años de diseño\n
+    cam:float = factor de camion\n
     return -> 365*TPD*VC*CD*((1+i)^n-1)/ln(1+i)\n
     """
     A0 = 365 * tpd * vc * cd  # Initial annual traffic
     if i == 0:
         return A0 * n  # Avoid division by zero
     else:
-        return A0 * ((1 + i)**n - 1) / i
+        return cam*A0 * ((1 + i)**n - 1) / i
 
 
 def predict_pavement_esal(r, so, sn, psi, mr):
@@ -73,6 +74,7 @@ class Layer():
     def __init__(self, material_table_row):
         self.name = material_table_row['mat_name']
         self.sn = material_table_row['sn']
+        self.material_type = material_table_row['material_type']
         self.cost = material_table_row['cost']
         self.density = material_table_row['density']
         self.unit = material_table_row['unit']
@@ -83,6 +85,94 @@ class Layer():
         self.min_lift = minimum_lift
         self.thickness = minimum_lift
         self.max_lift = material_table_row['max']
+        self.capacity_Ne = 0
+        # Helper function to safely get value from pandas Series or dict, handling NaN
+        def safe_get(key, default=np.nan):
+            try:
+                if hasattr(material_table_row, 'index'):
+                    # pandas Series
+                    if key in material_table_row.index:
+                        val = material_table_row[key]
+                        return val if pd.notna(val) else default
+                else:
+                    # dict
+                    if key in material_table_row:
+                        val = material_table_row[key]
+                        # Check for NaN, None, or empty string
+                        if val is None or val == '':
+                            return default
+                        try:
+                            if pd.isna(val):
+                                return default
+                        except (TypeError, ValueError):
+                            pass
+                        return val
+            except (KeyError, AttributeError):
+                pass
+            return default
+        
+        # Map E (Young's Modulus) and Poisson_ratio based on material_type
+        if self.material_type == 'Bituminous':
+            self.E = safe_get('E_bit_MPa_15C_10Hz')
+            self.epsilon_6_strain_10e_6 = safe_get('epsilon_6_strain_10e-6')
+            self.b_slope_bit = safe_get('b_slope_bit')
+            self.SN_logN_bit = safe_get('SN_logN_bit')
+            self.Poisson_ratio = 0.35  # Bituminous Materials
+            # Set other type-specific properties to NaN
+            self.E_hyd_MPa_360d = np.nan
+            self.sigma_6_MPa_10e6 = np.nan
+            self.b_slope_hyd = np.nan
+            self.SN_logN_hyd = np.nan
+            self.Rt_MPa = np.nan
+            self.E_untreated_MPa = np.nan
+        elif self.material_type == 'Hydraulic':
+            self.E = safe_get('E_hyd_MPa_360d')
+            self.sigma_6_MPa_10e6 = safe_get('sigma_6_MPa_10e6')
+            self.b_slope_hyd = safe_get('b_slope_hyd')
+            self.SN_logN_hyd = safe_get('SN_logN_hyd')
+            self.Rt_MPa = safe_get('Rt_MPa')
+            self.Poisson_ratio = 0.25  # Materials Treated with Hydraulic Binders and Cement Concrete
+            # Set other type-specific properties to NaN
+            self.E_bit_MPa_15C_10Hz = np.nan
+            self.epsilon_6_strain_10e_6 = np.nan
+            self.b_slope_bit = np.nan
+            self.SN_logN_bit = np.nan
+            self.E_untreated_MPa = np.nan
+        elif self.material_type == 'Untreated':
+            self.E = safe_get('E_untreated_MPa')
+            self.Poisson_ratio = 0.35  # Untreated Granular Materials
+            # Set other type-specific properties to NaN
+            self.E_bit_MPa_15C_10Hz = np.nan
+            self.epsilon_6_strain_10e_6 = np.nan
+            self.b_slope_bit = np.nan
+            self.SN_logN_bit = np.nan
+            self.E_hyd_MPa_360d = np.nan
+            self.sigma_6_MPa_10e6 = np.nan
+            self.b_slope_hyd = np.nan
+            self.SN_logN_hyd = np.nan
+            self.Rt_MPa = np.nan
+        else:
+            # Unknown material type, try to get E from any available column
+            e_bit = safe_get('E_bit_MPa_15C_10Hz')
+            e_hyd = safe_get('E_hyd_MPa_360d')
+            e_unt = safe_get('E_untreated_MPa')
+            self.E = e_bit if pd.notna(e_bit) else (e_hyd if pd.notna(e_hyd) else e_unt)
+            self.Poisson_ratio = 0.35  # Default fallback for unknown material types
+            # Set all type-specific properties to NaN
+            self.E_bit_MPa_15C_10Hz = np.nan
+            self.epsilon_6_strain_10e_6 = np.nan
+            self.b_slope_bit = np.nan
+            self.SN_logN_bit = np.nan
+            self.E_hyd_MPa_360d = np.nan
+            self.sigma_6_MPa_10e6 = np.nan
+            self.b_slope_hyd = np.nan
+            self.SN_logN_hyd = np.nan
+            self.Rt_MPa = np.nan
+            self.E_untreated_MPa = np.nan
+        
+        # Override Poisson_ratio if subgrade flag is set (Subgrade Pavement Foundation uses 0.35)
+        if bool(subgrade):
+            self.Poisson_ratio = 0.35
         self.cost_per_inch = self.calc_cost_per_inch()
         self.surface_code = 1 if bool(surface) else 0
         self.subgrade_code = 1 if bool(subgrade) else 0
@@ -109,6 +199,34 @@ class Section(list): # subclass list just for sanity
         super().__init__(*layers)
     def get_sn(self):
         return sum([l.sn * l.thickness for l in self])
+    def __str__(self):
+        if not self:
+            return "Section: <empty>"
+
+        lines = [f"Section: {len(self)} layer(s)"]
+        for idx, layer in enumerate(self, start=1):
+            name = getattr(layer, "name", f"Layer {idx}")
+            mat_type = getattr(layer, "material_type", "Unknown")
+
+            thickness_in = getattr(layer, "thickness", None)
+            if thickness_in is not None:
+                thickness_mm = thickness_in * 25.4
+                thickness_str = f"{thickness_mm:.1f} mm ({thickness_in:.2f} in)"
+            else:
+                thickness_str = "N/A"
+
+            sn = getattr(layer, "sn", None)
+            sn_str = f"{sn:.3f}" if sn is not None else "N/A"
+
+            lines.append(
+                f"  {idx}. {name} [{mat_type}]  thickness: {thickness_str}, SN: {sn_str}"
+            )
+
+        total_sn = self.get_sn()
+        lines.append(f"Total Structural Number (SN): {total_sn:.3f}")
+        return "\n".join(lines)
+
+    __repr__ = __str__
     def info(self):
         return {
             'total_sn': self.get_sn(),
@@ -480,8 +598,8 @@ def calculate_sn_projected(acumulated:np.array,params:dict):
     for i in range(len(sn_projected)):
         sn_projected[i] -= start_value * (len(sn_projected)-i-1)/(len(sn_projected)-1)
     return sn_projected
-def save_design(section:Section,sim:int,period:int,startover,top_sn):
-    sect_info = {'simulation':sim,'period':period,'total_sn':section.get_sn(),'total_cost':section.totalCost,'layer_materials':[],'layer_thicknesses':[],'layer_sns':[]}
+def save_design(section:Section,sim:int,period:int,startover,top_sn,top_cost=0):
+    sect_info = {'simulation':sim,'period':period,'total_sn':section.get_sn(),'total_cost':section.totalCost,'top_cost':top_cost,'layer_materials':[],'layer_thicknesses':[],'layer_sns':[]}
     # Store layer information
     materials = []
     thicknesses = []
@@ -496,17 +614,27 @@ def save_design(section:Section,sim:int,period:int,startover,top_sn):
     sect_info['startover'] = round(startover,2)
     sect_info['top_sn'] = round(top_sn,2)
     return sect_info
-def evaluate_flexibility(params:dict,DF)->np.array:
+def evaluate_flexibility(params:dict, DF, random_esals=None, acumulated=None):
     """
     Function to evaluate the design flexibility\n
     params:dict = dictionary with all the parameters, keys\n
     DF:pd.DataFrame = DataFrame with the materials\n
+    random_esals: np.array, optional
+        Pre-generated monthly traffic array (size × n). If None, generates new traffic.
+    acumulated: np.array, optional
+        Pre-generated accumulated traffic array (size × n). If None, generates new traffic.
+        If random_esals is provided, acumulated should also be provided.
     return array of size length of npv (one each for all the simulations)
     """
     # Create list to store section information (would be converted to DataFrame later)
     section_info = []
     
-    random_esals,acumulated = make_simulated_transit(params['TPD'],params['vc'],params['cd'],params['size'],params['n'],params['seedint'],params['mu_function'],params['sigma_function'])
+    # Generate traffic if not provided
+    if random_esals is None or acumulated is None:
+        random_esals, acumulated = make_simulated_transit(
+            params['TPD'], params['vc'], params['cd'], params['size'], 
+            params['n'], params['seedint'], params['mu_function'], params['sigma_function']
+        )
     n_step = params['step']
     
     # Step 1: Generate traditional design for full period
@@ -603,7 +731,10 @@ def evaluate_flexibility(params:dict,DF)->np.array:
                                                                 required_top_sn+base_sn, len(current_step_design)-num_top_layers, 
                                                                 params['grade'], params['emb'], params['excv'])
                 top_sn = actual_achieved_sn-base_sn+reduce_base_step
-                section_info.append(save_design(current_step_design, sim, n_break,startover=current_base_sn,top_sn=previous_top_sn+top_sn))
+                top_cost = 0
+                for i in range(num_top_layers):
+                    top_cost += current_step_design[i].cost * current_step_design[i].thickness
+                section_info.append(save_design(current_step_design, sim, n_break,startover=current_base_sn,top_sn=previous_top_sn+top_sn,top_cost=top_cost))
             
             
             # Update previous break position
@@ -613,3 +744,472 @@ def evaluate_flexibility(params:dict,DF)->np.array:
     results_df = pd.DataFrame(section_info)
     
     return results_df, acumulated_SN
+
+def generate_shared_traffic(params:dict):
+    """
+    Generate traffic simulation that can be shared between evaluate_flexibility 
+    and evaluate_flexibility_burmister for fair comparison.
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary with traffic simulation parameters:
+        - TPD, vc, cd: Traffic parameters
+        - size, n, seedint: Simulation parameters
+        - mu_function, sigma_function: Growth functions
+    
+    Returns:
+    --------
+    tuple : (random_esals, acumulated)
+        - random_esals: 2D array (size × n) of monthly traffic
+        - acumulated: 2D array (size × n) of accumulated traffic
+    """
+    random_esals, acumulated = make_simulated_transit(
+        params['TPD'], params['vc'], params['cd'], params['size'], 
+        params['n'], params['seedint'], params['mu_function'], params['sigma_function']
+    )
+    return random_esals, acumulated
+
+def calculate_ne_projected(acumulated:np.array, params:dict):
+    """
+    Calculate projected NE requirements from accumulated traffic.
+    Note: This is a simplified approach - actual NE depends on section structure.
+    For flexibility evaluation, we use the accumulated traffic directly as NE requirement.
+    
+    Parameters:
+    -----------
+    acumulated : np.array
+        Array with accumulated traffic (axles)
+    params : dict
+        Dictionary with parameters (currently not used but kept for consistency)
+    
+    Returns:
+    --------
+    np.array : Array with projected NE requirements (same as accumulated traffic)
+    """
+    # For French design, NE is directly the accumulated traffic
+    # The section's NE capacity (from Burmister) must exceed this
+    return acumulated.copy()
+
+def calculate_break_ne(arr:np.array, ne_capacity:float)->int:
+    """
+    Find when the accumulated traffic (NE requirement) exceeds the section's NE capacity.
+    
+    Parameters:
+    -----------
+    arr : np.array
+        Array with accumulated traffic (NE requirements)
+    ne_capacity : float
+        NE capacity of the section (from Burmister analysis)
+    
+    Returns:
+    --------
+    int : Index when capacity is exceeded, or len(arr) if it never fails
+    """
+    for i in range(len(arr)):
+        if arr[i] >= ne_capacity:
+            return i
+    return len(arr)
+
+def design_section_for_ne(DF, target_ne:float, initial_section:Section=None, 
+                          num_top_layers:int=3, grade:float=0.0, 
+                          embankment_cost:float=0.0, excavation_cost:float=0.0,
+                          subgrade_E:float=50.0, subgrade_v:float=0.35,
+                          traffic_level:str='low', max_iterations:int=10,
+                          thickness_increment:float=1.0):
+    """
+    Design a pavement section to meet a target NE requirement using Burmister analysis.
+    
+    Parameters:
+    -----------
+    DF : pd.DataFrame
+        Materials DataFrame
+    target_ne : float
+        Target NE (number of equivalent axles) the section must support
+    initial_section : Section, optional
+        Initial section to modify (if None, creates new section)
+    num_top_layers : int
+        Number of top layers to modify (if initial_section provided)
+    grade, embankment_cost, excavation_cost : float
+        Earthwork parameters
+    subgrade_E, subgrade_v : float
+        Subgrade properties for Burmister analysis
+    traffic_level : str
+        Traffic level ('low' or 'high') for NE calculation
+    max_iterations : int
+        Maximum iterations for iterative design
+    thickness_increment : float
+        Thickness increment for iterative adjustment (inches)
+    
+    Returns:
+    --------
+    tuple : (designed_section, achieved_ne, ne_limits_dict)
+    """
+    try:
+        import burmister
+        from burm_FDM_Ne import calculate_pavement_ne
+    except ImportError:
+        raise ImportError("burmister and burm_FDM_Ne modules are required for NE-based design")
+    
+    material_list = make_material_list(DF)
+    
+    # If no initial section, create a basic design using SN as starting point
+    if initial_section is None:
+        # Use a simple SN-based design as starting point
+        # Estimate SN from target NE (rough approximation: SN ≈ 5 for ~1M axles)
+        estimated_sn = 5.0 + (target_ne / 1e6) * 2.0  # Rough scaling
+        initial_section = solve(DF, estimated_sn, grade, embankment_cost, excavation_cost, min_capas=3)[0]
+    else:
+        initial_section = deepcopy(initial_section)
+    
+    # Iteratively adjust thickness to meet NE requirement
+    best_section = deepcopy(initial_section)
+    best_ne = 0.0
+    
+    for iteration in range(max_iterations):
+        # Run Burmister analysis
+        try:
+            burmister_results = burmister.analyze_section(
+                best_section,
+                subgrade_E=subgrade_E,
+                subgrade_v=subgrade_v,
+                plot_geometry=False
+            )
+            
+            # Calculate NE capacity
+            final_ne, criterion, ne_limits = calculate_pavement_ne(
+                best_section, burmister_results, traffic_level=traffic_level
+            )
+            
+            if final_ne is None or final_ne == float('inf'):
+                final_ne = 0.0
+            
+            # Check if we've met the requirement
+            if final_ne >= target_ne:
+                return best_section, final_ne, ne_limits
+            
+            # If not, increase thickness of modifiable layers
+            if final_ne < target_ne:
+                # Calculate how much to increase (proportional)
+                increase_factor = (target_ne / final_ne) if final_ne > 0 else 2.0
+                increase_factor = min(increase_factor, 1.5)  # Limit to 50% increase per iteration
+                
+                # Increase thickness of top layers
+                layers_to_modify = min(num_top_layers, len(best_section))
+                for i in range(layers_to_modify):
+                    new_thickness = best_section[i].thickness * increase_factor
+                    # Ensure within limits
+                    new_thickness = max(best_section[i].min_lift, 
+                                      min(new_thickness, best_section[i].max_lift))
+                    best_section[i].thickness = new_thickness
+                
+                best_ne = final_ne
+            else:
+                # We've exceeded requirement, could refine but for now return
+                return best_section, final_ne, ne_limits
+                
+        except Exception as e:
+            # If Burmister fails, try to increase thickness anyway
+            if iteration == 0:
+                # First iteration failed, increase all layers
+                for layer in best_section:
+                    layer.thickness = min(layer.thickness + thickness_increment, layer.max_lift)
+            else:
+                # Subsequent failure, return best we have
+                return best_section, best_ne, {}
+    
+    # Return best section found (may not meet requirement)
+    return best_section, best_ne, {}
+
+def resolve_ne(DF, section:Section, target_ne:float, unmodify_bottom_layers:int=0,
+               grade:float=0.0, embankment_cost:float=0.0, excavation_cost:float=0.0,
+               subgrade_E:float=50.0, subgrade_v:float=0.35, traffic_level:str='low'):
+    """
+    Modify an existing section to meet NE requirement, similar to resolve() but for NE.
+    Only modifies top layers, keeping bottom layers fixed.
+    
+    Parameters:
+    -----------
+    DF : pd.DataFrame
+        Materials DataFrame
+    section : Section
+        Existing section to modify
+    target_ne : float
+        Target NE requirement
+    unmodify_bottom_layers : int
+        Number of bottom layers to keep unchanged
+    grade, embankment_cost, excavation_cost : float
+        Earthwork parameters
+    subgrade_E, subgrade_v : float
+        Subgrade properties
+    traffic_level : str
+        Traffic level for NE calculation
+    
+    Returns:
+    --------
+    tuple : (modified_section, achieved_ne, ne_limits_dict)
+    """
+    return design_section_for_ne(
+        DF, target_ne, initial_section=section, 
+        num_top_layers=len(section) - unmodify_bottom_layers,
+        grade=grade, embankment_cost=embankment_cost, excavation_cost=excavation_cost,
+        subgrade_E=subgrade_E, subgrade_v=subgrade_v, traffic_level=traffic_level
+    )
+
+def save_design_ne(section:Section, sim:int, period:int, ne_capacity:float, 
+                   ne_top:float=0.0, top_cost:float=0.0):
+    """
+    Save design information for NE-based design.
+    
+    Parameters:
+    -----------
+    section : Section
+        The designed section
+    sim : int
+        Simulation ID
+    period : int
+        Period (month) when design was created
+    ne_capacity : float
+        Total NE capacity of the section
+    ne_top : float
+        NE capacity provided by top layers
+    top_cost : float
+        Cost of top layers
+    
+    Returns:
+    --------
+    dict : Dictionary with design information
+    """
+    sect_info = {
+        'simulation': sim,
+        'period': period,
+        'ne_capacity': round(ne_capacity, 2),
+        'ne_top': round(ne_top, 2),
+        'total_cost': round(section.totalCost, 2),
+        'top_cost': round(top_cost, 2),
+        'layer_materials': [],
+        'layer_thicknesses': [],
+        'layer_sns': []
+    }
+    
+    # Store layer information
+    materials = []
+    thicknesses = []
+    sns = []
+    for layer in section:
+        materials.append(layer.name)
+        thicknesses.append(round(layer.thickness, 2))
+        sns.append(round(layer.sn, 2))
+    
+    sect_info['layer_materials'] = materials
+    sect_info['layer_thicknesses'] = thicknesses
+    sect_info['layer_sns'] = sns
+    
+    return sect_info
+
+def evaluate_flexibility_burmister(params:dict, DF, subgrade_E:float=50.0, 
+                                   subgrade_v:float=0.35, traffic_level:str='low',
+                                   random_esals=None, acumulated=None):
+    """
+    Evaluate design flexibility using French Design Method with Burmister analysis.
+    Uses NE (number of equivalent axles) instead of SN.
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary with all parameters (same as evaluate_flexibility):
+        - TPD, vc, cd: Traffic parameters
+        - size, n, seedint: Simulation parameters
+        - step: Intervention interval (months)
+        - capas: Number of top layers to modify
+        - factor: Life factor (0-1)
+        - mu_function, sigma_function: Growth functions
+        - grade, emb, excv: Earthwork parameters
+        - min_capas: Minimum layers in design
+    DF : pd.DataFrame
+        Materials DataFrame
+    subgrade_E : float
+        Subgrade Young's modulus in MPa (default: 50.0)
+    subgrade_v : float
+        Subgrade Poisson ratio (default: 0.35)
+    traffic_level : str
+        Traffic level for NE calculation: 'low' or 'high' (default: 'low')
+    random_esals : np.array, optional
+        Pre-generated monthly traffic array (size × n). If None, generates new traffic.
+        Use this to share the same traffic simulation with evaluate_flexibility.
+    acumulated : np.array, optional
+        Pre-generated accumulated traffic array (size × n). If None, generates new traffic.
+        If random_esals is provided, acumulated should also be provided.
+        Use this to share the same traffic simulation with evaluate_flexibility.
+    
+    Returns:
+    --------
+    tuple : (results_df, acumulated_NE)
+        - results_df: DataFrame with redesign events and NE capacities
+        - acumulated_NE: 2D array (size × n) of projected NE requirements
+    """
+    try:
+        import burmister
+        from burm_FDM_Ne import calculate_pavement_ne
+    except ImportError:
+        raise ImportError("burmister and burm_FDM_Ne modules are required")
+    
+    # Create list to store section information
+    section_info = []
+    
+    # Generate traffic simulations if not provided (allows sharing traffic with evaluate_flexibility)
+    if random_esals is None or acumulated is None:
+        random_esals, acumulated = make_simulated_transit(
+            params['TPD'], params['vc'], params['cd'], params['size'], 
+            params['n'], params['seedint'], params['mu_function'], params['sigma_function']
+        )
+    
+    n_step = params['step']
+    num_top_layers = params.get('capas', 3)
+    
+    # Calculate projected NE requirements (same as accumulated traffic for French design)
+    acumulated_NE = np.zeros((params['size'], params['n']))
+    for sim in range(params['size']):
+        acumulated_NE[sim, :] = calculate_ne_projected(acumulated[sim, :], params)
+    
+    # Step 1: Create initial design for first intervention period
+    # Start with a reasonable initial section
+    initial_target_ne = acumulated_NE[0, n_step] if n_step < params['n'] else acumulated_NE[0, -1]
+    
+    initial_design, initial_ne, _ = design_section_for_ne(
+        DF, initial_target_ne, initial_section=None,
+        num_top_layers=len(DF),  # Can modify all layers initially
+        grade=params['grade'], embankment_cost=params['emb'], 
+        excavation_cost=params['excv'], subgrade_E=subgrade_E, 
+        subgrade_v=subgrade_v, traffic_level=traffic_level
+    )
+    
+    # Calculate base NE (from bottom layers)
+    base_ne = 0.0
+    if len(initial_design) > num_top_layers:
+        # Run Burmister on base layers only to estimate base NE
+        base_section = Section()
+        for i in range(num_top_layers, len(initial_design)):
+            base_section.append(deepcopy(initial_design[i]))
+        
+        try:
+            base_burmister = burmister.analyze_section(
+                base_section, subgrade_E=subgrade_E, subgrade_v=subgrade_v, plot_geometry=False
+            )
+            base_ne, _, _ = calculate_pavement_ne(base_section, base_burmister, traffic_level=traffic_level)
+            if base_ne is None or base_ne == float('inf'):
+                base_ne = 0.0
+        except:
+            base_ne = 0.0
+    
+    # Calculate top NE capacity
+    top_ne = max(0.0, initial_ne - base_ne)
+    
+    # Calculate base NE reduction per step
+    total_steps = params['n'] // n_step if n_step > 0 else 1
+    reduce_base_ne = base_ne / total_steps if total_steps > 0 and base_ne > 0 else 0.0
+    
+    # Store initial design for all simulations
+    for sim in range(params['size']):
+        section_info.append(save_design_ne(
+            initial_design, sim, 0, 
+            ne_capacity=initial_ne, 
+            ne_top=top_ne + reduce_base_ne,
+            top_cost=0.0
+        ))
+    
+    # Step 2: Process each simulation
+    for sim in range(params['size']):
+        acumulated_ne_sim = acumulated_NE[sim, :]
+        current_design = deepcopy(initial_design)
+        
+        # Recalculate base NE for current design
+        current_base_ne = base_ne
+        current_top_ne = top_ne
+        
+        previous_top_ne = 0.0
+        previous_break = 0
+        
+        # Loop until end of simulation period
+        while previous_break < params['n']:
+            # Calculate current total NE capacity
+            total_ne_capacity = previous_top_ne + (current_top_ne * params['factor'])
+            
+            # Find when capacity is exceeded
+            n_break = calculate_break_ne(acumulated_ne_sim[previous_break:], total_ne_capacity)
+            n_break += previous_break  # Adjust for offset
+            
+            # If no break found, we're done
+            if n_break >= params['n']:
+                break
+            
+            # Update previous top NE
+            previous_top_ne += current_top_ne * params['factor']
+            
+            # Calculate required NE for next intervention period
+            # Use linear extrapolation from current trend
+            if n_break + n_step < params['n']:
+                target_ne = acumulated_ne_sim[n_break + n_step]
+            else:
+                target_ne = acumulated_ne_sim[-1]
+            
+            # Adjust for base layer deterioration
+            if current_base_ne > 0:
+                current_base_ne -= reduce_base_ne
+                required_top_ne = max(0.0, target_ne - current_base_ne)
+            else:
+                required_top_ne = target_ne
+            
+            # Redesign
+            if current_base_ne <= 0:
+                # Complete rebuild
+                new_design, achieved_ne, ne_limits = design_section_for_ne(
+                    DF, required_top_ne, initial_section=None,
+                    num_top_layers=len(DF), grade=params['grade'],
+                    embankment_cost=params['emb'], excavation_cost=params['excv'],
+                    subgrade_E=subgrade_E, subgrade_v=subgrade_v, traffic_level=traffic_level
+                )
+                current_design = new_design
+                
+                # Recalculate base and top NE
+                current_base_ne = 0.0
+                current_top_ne = achieved_ne
+                
+                section_info.append(save_design_ne(
+                    current_design, sim, n_break,
+                    ne_capacity=achieved_ne, ne_top=previous_top_ne + current_top_ne,
+                    top_cost=0.0
+                ))
+            else:
+                # Partial redesign (modify top layers only)
+                modified_design, achieved_ne, ne_limits = resolve_ne(
+                    DF, current_design, required_top_ne + current_base_ne,
+                    unmodify_bottom_layers=num_top_layers,
+                    grade=params['grade'], embankment_cost=params['emb'],
+                    excavation_cost=params['excv'], subgrade_E=subgrade_E,
+                    subgrade_v=subgrade_v, traffic_level=traffic_level
+                )
+                current_design = modified_design
+                
+                # Recalculate top NE
+                current_top_ne = max(0.0, achieved_ne - current_base_ne)
+                
+                # Calculate top cost
+                top_cost = 0.0
+                for i in range(num_top_layers):
+                    if i < len(current_design):
+                        top_cost += current_design[i].cost * current_design[i].thickness
+                
+                section_info.append(save_design_ne(
+                    current_design, sim, n_break,
+                    ne_capacity=achieved_ne, ne_top=previous_top_ne + current_top_ne,
+                    top_cost=top_cost
+                ))
+            
+            # Update previous break position
+            previous_break = n_break
+    
+    # Create DataFrame with all section information
+    results_df = pd.DataFrame(section_info)
+    
+    return results_df, acumulated_NE

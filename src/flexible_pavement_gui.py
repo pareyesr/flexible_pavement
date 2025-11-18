@@ -700,31 +700,36 @@ class App:
         self.cruta.grid(row=0, column=1, padx=10, pady=5, sticky="w")
         ttk.Label(tab, text=".csv").grid(row=0, column=2, padx=0, pady=5, sticky="w")
         
-        # Column headers
-        titulos = ['mat_name', 'SN', 'min', 'max', 'density', 'cost', 'unit', 'surface', 'subgrade', 'alkaline']
-        for i, titulo in enumerate(titulos):
-            ttk.Label(tab, text=titulo).grid(row=1, column=i, padx=0, pady=5)
-
-        # Define options for dropdowns
-        unit_options = ['ton', 'cyd', 'sqyd']
-        bool_options = ['False', 'True']
+        # Container with horizontal scrolling for the materials table
+        self.table_container = ttk.Frame(tab)
+        self.table_container.grid(row=1, column=0, columnspan=12, padx=5, pady=5, sticky="nsew")
         
-        # Create dictionaries to store the comboboxes
-        self.unit_combo = ttk.Combobox(tab, values=unit_options, width=7, state='readonly')
-        self.unit_combo.set(unit_options[0])  # Set default value
-        self.unit_combo.grid(row=2, column=6, padx=0, pady=5)
-
-        self.surface_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
-        self.surface_combo.set(bool_options[0])
-        self.surface_combo.grid(row=2, column=7, padx=0, pady=5)
-
-        self.subgrade_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
-        self.subgrade_combo.set(bool_options[0])
-        self.subgrade_combo.grid(row=2, column=8, padx=0, pady=5)
-
-        self.alkaline_combo = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
-        self.alkaline_combo.set(bool_options[0])
-        self.alkaline_combo.grid(row=2, column=9, padx=0, pady=5)
+        # Configure grid weights so the canvas expands
+        try:
+            tab.columnconfigure(0, weight=1)
+            self.table_container.columnconfigure(0, weight=1)
+            self.table_container.rowconfigure(0, weight=1)
+        except Exception:
+            pass
+        
+        self.mat_canvas = tk.Canvas(self.table_container, highlightthickness=0)
+        self.mat_canvas.grid(row=0, column=0, sticky="nsew")
+        
+        self.mat_h_scroll = ttk.Scrollbar(self.table_container, orient='horizontal', command=self.mat_canvas.xview)
+        self.mat_h_scroll.grid(row=1, column=0, sticky="ew")
+        self.mat_canvas.configure(xscrollcommand=self.mat_h_scroll.set)
+        
+        # Inner frame that will hold the table
+        self.mat_table_frame = ttk.Frame(self.mat_canvas)
+        self.mat_canvas.create_window((0, 0), window=self.mat_table_frame, anchor='nw')
+        
+        # Update scrollregion whenever the size of the inner frame changes
+        def _update_scrollregion(event=None):
+            try:
+                self.mat_canvas.configure(scrollregion=self.mat_canvas.bbox("all"))
+            except Exception:
+                pass
+        self.mat_table_frame.bind('<Configure>', _update_scrollregion)
         
         # Load materials from default.csv
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -772,55 +777,57 @@ class App:
         return df
 
     def cargar_mat(self,tab,ruta):
-        # Clear existing widgets except for permanent ones
-        preserved_widgets = []
-        if hasattr(self, 'mat_result_label') and self.mat_result_label:
-            preserved_widgets.append(self.mat_result_label)
-        if hasattr(self, 'cruta') and self.cruta:
-            preserved_widgets.append(self.cruta)
-            
-        for widget in tab.grid_slaves():
-            if isinstance(widget, (ttk.Label, ttk.Entry, ttk.Combobox)) and widget not in preserved_widgets:
+        # Clear existing table contents inside the scrollable frame
+        if hasattr(self, 'mat_table_frame') and self.mat_table_frame:
+            for widget in self.mat_table_frame.grid_slaves():
                 widget.destroy()
         
         # Mostrar el resultado de cargar el material en la interfaz
         DF_mat = cargar_materiales(ruta)
         
-        # If the DataFrame is empty (new file), create a template row with empty values
+        # If the DataFrame is empty (new file), create a template with columns from default.csv
         if len(DF_mat) == 0:
             self.mat_result_label.config(text="Created new material file template")
-            # Create empty DataFrame with correct columns
-            DF_mat = pd.DataFrame(columns=['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline'])
+            # Load headers from default.csv to ensure all columns are shown
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            default_csv_path = os.path.join(script_dir, "default.csv")
+            try:
+                default_headers = list(pd.read_csv(default_csv_path, nrows=0).columns)
+            except Exception:
+                # Fallback to previous minimal set if default.csv is not readable
+                default_headers = ['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline']
+            DF_mat = pd.DataFrame(columns=default_headers)
         
-        # Re-add title labels
-        titulos=['mat_name','SN','min','max','density','cost','unit','surface','subgrade','alkaline']
+        # Re-add title labels dynamically from DataFrame columns
+        titulos = list(DF_mat.columns)
         for i in range(len(titulos)):
-            ttk.Label(tab, text=titulos[i]).grid(row=1, column=i, padx=0, pady=5)
+            ttk.Label(self.mat_table_frame, text=titulos[i]).grid(row=0, column=i, padx=5, pady=5, sticky="w")
             
         # Add material data
         for i in range(len(DF_mat)):
             for j in range(len(DF_mat.iloc[i])):
-                ttk.Label(tab, text=str(DF_mat.iloc[i].iloc[j])).grid(row=i+2, column=j, padx=10, pady=1)
+                ttk.Label(self.mat_table_frame, text=str(DF_mat.iloc[i].iloc[j])).grid(row=i+1, column=j, padx=5, pady=1, sticky="w")
         
         # Calculate the row for new entries (after the last material)
-        entry_row = len(DF_mat) + 2
+        entry_row = len(DF_mat) + 1
         
         # Define options for dropdowns
         unit_options = ['ton', 'cyd', 'sqyd']
         bool_options = ['False', 'True']
         
-        # Create or update entry fields for new material
+        # Create or update entry fields for new material across all columns
         self.entrys = []
         for k in range(len(titulos)):
-            if titulos[k] == 'unit':
-                entry = ttk.Combobox(tab, values=unit_options, width=7, state='readonly')
+            col_name = titulos[k]
+            if col_name == 'unit':
+                entry = ttk.Combobox(self.mat_table_frame, values=unit_options, width=10, state='readonly')
                 entry.set(unit_options[0])
-            elif titulos[k] in ['surface', 'subgrade', 'alkaline']:
-                entry = ttk.Combobox(tab, values=bool_options, width=7, state='readonly')
+            elif col_name in ['surface', 'subgrade', 'alkaline']:
+                entry = ttk.Combobox(self.mat_table_frame, values=bool_options, width=10, state='readonly')
                 entry.set(bool_options[0])
             else:
-                entry = ttk.Entry(tab, width=10)
-            entry.grid(row=entry_row, column=k, padx=10, pady=5, sticky="w")
+                entry = ttk.Entry(self.mat_table_frame, width=12)
+            entry.grid(row=entry_row, column=k, padx=5, pady=5, sticky="w")
             self.entrys.append(entry)
                 
         # Add save button if it doesn't exist
@@ -829,10 +836,11 @@ class App:
             self.save_button.grid(row=0, column=5, columnspan=2, pady=10)
             
         # Add additional configuration fields
-        config_start_row = entry_row + 1
+        # Place configuration section below the scrollable table
+        config_start_row = 2
         
         # Header for configuration section
-        ttk.Label(tab, text="Configuration", font=('Arial', 10, 'bold')).grid(row=config_start_row, column=0, columnspan=2, pady=(20,5), sticky="w")
+        ttk.Label(tab, text="Configuration", font=('Arial', 10, 'bold')).grid(row=config_start_row, column=0, columnspan=2, pady=(10,5), sticky="w")
         
         # Excavation cost field
         ttk.Label(tab, text="Excavation Cost ($/cyd)").grid(row=config_start_row+1, column=0, padx=0, pady=0, sticky="w")        
@@ -1447,20 +1455,51 @@ class App:
         """
         Create widgets for the traditional design visualization tab
         """
+        # Create a frame for analysis options
+        options_frame = ttk.LabelFrame(tab, text="Opciones de Análisis")
+        options_frame.pack(fill='x', padx=5, pady=5)
+
+        # Analysis type selector
+        ttk.Label(options_frame, text="Tipo de Análisis:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.analysis_type = tk.StringVar(value="traditional_design")
+        analysis_combo = ttk.Combobox(options_frame, textvariable=self.analysis_type, 
+                                     values=["traditional_design", "traditional_vs_simulated", "npv_analysis"],
+                                     state="readonly", width=25)
+        analysis_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        analysis_combo.bind('<<ComboboxSelected>>', self.on_analysis_type_change)
+
+        # NPV parameters frame (initially hidden)
+        self.npv_frame = ttk.LabelFrame(tab, text="Parámetros NPV")
+        self.npv_frame.pack(fill='x', padx=5, pady=5)
+        
+        # Discount rate
+        ttk.Label(self.npv_frame, text="Tasa de Descuento (%):").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.discount_rate = tk.StringVar(value="5.0")
+        ttk.Entry(self.npv_frame, textvariable=self.discount_rate, width=10).grid(row=0, column=1, padx=5, pady=5, sticky='w')
+
+        # Simulation parameters frame (initially hidden)
+        self.sim_params_frame = ttk.LabelFrame(tab, text="Parámetros de Simulación")
+        self.sim_params_frame.pack(fill='x', padx=5, pady=5)
+        
+        # Number of simulations
+        ttk.Label(self.sim_params_frame, text="Número de Simulaciones:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.num_simulations = tk.StringVar(value="100")
+        ttk.Entry(self.sim_params_frame, textvariable=self.num_simulations, width=10).grid(row=0, column=1, padx=5, pady=5, sticky='w')
+
         # Create a frame for parameters
         param_frame = ttk.LabelFrame(tab, text="Parámetros de Diseño")
         param_frame.pack(fill='x', padx=5, pady=5)
 
         # Add a description label
-        description = "Esta visualización muestra el progreso del tráfico y cómo el SN proyectado se compara con el SN de diseño a lo largo del tiempo."
-        ttk.Label(param_frame, text=description, wraplength=400).grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+        self.description_label = ttk.Label(param_frame, text="Esta visualización muestra cómo el SN proyectado se compara con el SN de diseño a lo largo del tiempo.", wraplength=400)
+        self.description_label.grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky='w')
 
         # Create a frame for the plot
         plot_frame = ttk.LabelFrame(tab, text="Visualización")
         plot_frame.pack(fill='both', expand=True, padx=5, pady=5)
 
         # Create matplotlib figure
-        self.trad_fig = Figure(figsize=(8, 6))
+        self.trad_fig = Figure(figsize=(10, 8))
         self.trad_canvas = FigureCanvasTkAgg(self.trad_fig, master=plot_frame)
         self.trad_canvas.get_tk_widget().pack(fill='both', expand=True)
 
@@ -1471,9 +1510,50 @@ class App:
         toolbar.update()
 
         # Add plot button
-        ttk.Button(param_frame, text="Generar Gráfico", 
-                   command=self.plot_traditional_design).grid(row=1, column=0, 
+        ttk.Button(param_frame, text="Generar Análisis", 
+                   command=self.run_traditional_analysis).grid(row=1, column=0, 
                                                             columnspan=2, pady=10)
+
+        # Initially hide optional frames
+        self.npv_frame.pack_forget()
+        self.sim_params_frame.pack_forget()
+
+    def on_analysis_type_change(self, event):
+        """Handle analysis type selection changes"""
+        analysis_type = self.analysis_type.get()
+        
+        # Update description based on analysis type
+        if analysis_type == "traditional_design":
+            self.description_label.config(text="Esta visualización muestra cómo el SN proyectado se compara con el SN de diseño a lo largo del tiempo.")
+            self.npv_frame.pack_forget()
+            self.sim_params_frame.pack_forget()
+        elif analysis_type == "traditional_vs_simulated":
+            self.description_label.config(text="Análisis comparativo entre el diseño tradicional y simulaciones de tráfico. Muestra la frecuencia de subestimación vs sobreestimación.")
+            self.npv_frame.pack_forget()
+            self.sim_params_frame.pack()
+        elif analysis_type == "npv_analysis":
+            self.description_label.config(text="Análisis del Valor Presente Neto (NPV) de los costos de construcción para diferentes tasas de descuento.")
+            self.npv_frame.pack()
+            self.sim_params_frame.pack_forget()
+
+    def run_traditional_analysis(self):
+        """
+        Run the selected traditional analysis type
+        """
+        try:
+            analysis_type = self.analysis_type.get()
+            
+            if analysis_type == "traditional_design":
+                self.plot_traditional_design()
+            elif analysis_type == "traditional_vs_simulated":
+                self.run_traditional_vs_simulated_analysis()
+            elif analysis_type == "npv_analysis":
+                self.run_npv_analysis()
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al ejecutar el análisis: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def plot_traditional_design(self):
         """
@@ -1492,31 +1572,30 @@ class App:
             self.trad_fig.clear()
 
             # Generate new plot
-            fig, (ax1, ax2, ax3) = plot_traditional_design(params, DF)
+            fig, ax = plot_traditional_design(params, DF)
             
-            # Copy the plots to our figure
-            for i, ax in enumerate([ax1, ax2, ax3]):
-                self.trad_fig.add_subplot(3, 1, i+1)
-                for line in ax.get_lines():
-                    self.trad_fig.axes[i].plot(line.get_xdata(), line.get_data()[1], 
-                                             color=line.get_color(), 
-                                             linestyle=line.get_linestyle(),
-                                             label=line.get_label())
-                self.trad_fig.axes[i].set_xlabel(ax.get_xlabel())
-                self.trad_fig.axes[i].set_ylabel(ax.get_ylabel())
-                self.trad_fig.axes[i].set_title(ax.get_title())
-                self.trad_fig.axes[i].grid(True)
-                self.trad_fig.axes[i].legend()
+            # Copy the plot to our figure
+            self.trad_fig.add_subplot(1, 1, 1)
+            for line in ax.get_lines():
+                self.trad_fig.axes[0].plot(line.get_xdata(), line.get_data()[1], 
+                                         color=line.get_color(), 
+                                         linestyle=line.get_linestyle(),
+                                         label=line.get_label())
+            self.trad_fig.axes[0].set_xlabel(ax.get_xlabel())
+            self.trad_fig.axes[0].set_ylabel(ax.get_ylabel())
+            self.trad_fig.axes[0].set_title(ax.get_title())
+            self.trad_fig.axes[0].grid(True)
+            self.trad_fig.axes[0].legend()
 
             # Add shaded area for SN exceedance if it exists
-            if hasattr(ax3, 'collections'):
-                for collection in ax3.collections:
+            if hasattr(ax, 'collections'):
+                for collection in ax.collections:
                     if collection.get_label() == 'SN Exceedance':
-                        self.trad_fig.axes[2].fill_between(collection.get_paths()[0].vertices[:, 0],
+                        self.trad_fig.axes[0].fill_between(collection.get_paths()[0].vertices[:, 0],
                                                          collection.get_paths()[0].vertices[:, 1],
                                                          color='red', alpha=0.3,
                                                          label='SN Exceedance')
-                        self.trad_fig.axes[2].legend()
+                        self.trad_fig.axes[0].legend()
 
             self.trad_fig.tight_layout()
             self.trad_canvas.draw()
@@ -1527,15 +1606,162 @@ class App:
         except Exception as e:
             messagebox.showerror("Error", f"Error al generar el gráfico: {str(e)}")
 
+    def run_traditional_vs_simulated_analysis(self):
+        """
+        Run the traditional vs simulated traffic analysis
+        """
+        try:
+            # Get parameters
+            params = create_params_dict(self, 
+                                       include_traffic=True,
+                                       include_design=True, 
+                                       include_simulation=True,
+                                       include_flexible=False,
+                                       include_functions=True)
+            
+            # Get number of simulations
+            num_sims = int(self.num_simulations.get())
+            params['size'] = num_sims
+            
+            # Generate simulated traffic data
+            accumulated_traffic_data = self.generate_simulated_traffic_data(params)
+            
+            # Run analysis
+            results = analyze_traditional_vs_simulated(params, accumulated_traffic_data, return_fig=True)
+            
+            # Display results in GUI
+            self.display_analysis_results(results['figure'])
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en análisis tradicional vs simulado: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def run_npv_analysis(self):
+        """
+        Run the NPV analysis for traditional design
+        """
+        try:
+            # Get discount rate
+            discount_rate = float(self.discount_rate.get()) / 100.0
+            
+            # For traditional design, we need to create a simple cost structure
+            # This is a simplified approach - in practice, you'd need more detailed cost data
+            messagebox.showinfo("NPV Analysis", 
+                               "Para el análisis NPV del diseño tradicional, se necesitan datos de costos detallados.\n"
+                               "Esta funcionalidad requiere implementación adicional de costos por período.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en análisis NPV: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def generate_simulated_traffic_data(self, params):
+        """
+        Generate simulated traffic data for analysis
+        """
+        import numpy as np
+        
+        # Set up random number generator
+        rng = np.random.default_rng(seed=params.get('seedint', 42))
+        
+        # Generate growth rates
+        grow_rates = np.zeros((params['size'], params['n']))
+        for i in range(params['size']):
+            for j in range(params['n']):
+                grow_rates[i,j] = rng.normal(loc=params['mu_function'](j), 
+                                           scale=params['sigma_function'](j))
+        
+        # Calculate initial monthly trips
+        initial_monthly_trips = params['TPD'] * 365 / 12 * params['vc'] * params['cd']
+        
+        # Initialize arrays for monthly traffic and cumulative traffic
+        res = np.zeros((params['size'], params['n']))
+        cum_res = np.zeros((params['size'], params['n']))
+        
+        # Apply the growth formula and calculate cumulative traffic
+        for sim in range(params['size']):
+            res[sim, 0] = initial_monthly_trips
+            cum_res[sim, 0] = initial_monthly_trips
+            for month in range(1, params['n']):
+                # Apply compounded growth
+                res[sim, month] = initial_monthly_trips * (1 + grow_rates[sim, month])
+                # Calculate cumulative traffic
+                cum_res[sim, month] = cum_res[sim, month-1] + res[sim, month]
+        
+        return cum_res
+
+    def display_analysis_results(self, fig):
+        """
+        Display analysis results in the GUI
+        """
+        try:
+            # Clear previous plot
+            self.trad_fig.clear()
+            
+            # Copy all subplots from the results figure
+            for i, ax in enumerate(fig.axes):
+                if i == 0:
+                    self.trad_fig.add_subplot(2, 2, i+1)
+                else:
+                    self.trad_fig.add_subplot(2, 2, i+1)
+                
+                # Copy lines
+                for line in ax.get_lines():
+                    self.trad_fig.axes[i].plot(line.get_xdata(), line.get_data()[1], 
+                                             color=line.get_color(), 
+                                             linestyle=line.get_linestyle(),
+                                             linewidth=line.get_linewidth(),
+                                             label=line.get_label())
+                
+                # Copy other elements
+                self.trad_fig.axes[i].set_xlabel(ax.get_xlabel())
+                self.trad_fig.axes[i].set_ylabel(ax.get_ylabel())
+                self.trad_fig.axes[i].set_title(ax.get_title())
+                self.trad_fig.axes[i].grid(True, alpha=0.3)
+                self.trad_fig.axes[i].legend()
+                
+                # Copy collections (filled areas, histograms, etc.)
+                if hasattr(ax, 'collections'):
+                    for collection in ax.collections:
+                        if hasattr(collection, 'get_paths') and collection.get_paths():
+                            path = collection.get_paths()[0]
+                            vertices = path.vertices
+                            if len(vertices) > 0:
+                                self.trad_fig.axes[i].fill_between(vertices[:, 0], vertices[:, 1],
+                                                                 color=collection.get_facecolor(),
+                                                                 alpha=collection.get_alpha(),
+                                                                 label=collection.get_label())
+                
+                # Copy patches (bars, etc.)
+                if hasattr(ax, 'patches'):
+                    for patch in ax.patches:
+                        self.trad_fig.axes[i].add_patch(patch)
+            
+            self.trad_fig.tight_layout()
+            self.trad_canvas.draw()
+            
+            # Close the temporary figure
+            plt.close(fig)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al mostrar resultados: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
 # Import functions based on how this module is being used
 try:
     # Try relative imports first (when imported as a module)
     from .Logica import solve_sn, cargar_materiales, solve, resolve, evaluate_flexibility
-    from .results import plot_simulated_function, plot_simulated_transit, plot_traditional_design
+    from .results import (plot_simulated_function, plot_simulated_transit, plot_traditional_design,
+                         analyze_traditional_vs_simulated, calculate_construction_npv, 
+                         plot_construction_npv_analysis)
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from Logica import solve_sn, cargar_materiales, solve, resolve, evaluate_flexibility
-    from results import plot_simulated_function, plot_simulated_transit, plot_traditional_design
+    from results import (plot_simulated_function, plot_simulated_transit, plot_traditional_design,
+                        analyze_traditional_vs_simulated, calculate_construction_npv, 
+                        plot_construction_npv_analysis)
 
 # Load default materials
 script_dir = os.path.dirname(os.path.abspath(__file__))
